@@ -224,12 +224,125 @@ async function resolveRoleIdByFixtureKey(db, fixtureKey) {
     return doc ? doc._id : null;
 }
 
+const ROLE_CODE_TO_NAME = {
+    NU: 'NamedUser',
+    SL: 'Spotlighter',
+    RO: 'RegionalOrganizer',
+    RA: 'RegionalAdmin',
+    SA: 'SystemAdmin',
+};
+
+/**
+ * Resolve a role _id with partition-aware lookup per matrix v1.0 resolution table.
+ * - appId="99" (Pattern A): preferred via _testFixtureKey "ROLE_<CODE>" (manifest v1.1 seed)
+ * - appId="1" / "2" (Pattern B / future HJ): roleName + appId lookup (production data)
+ *
+ * @param {Db} db
+ * @param {string} code - "NU" | "SL" | "RO" | "RA" | "SA"
+ * @param {string} appId - "99" | "1" | "2"
+ * @returns {Promise<ObjectId|null>}
+ */
+async function resolveRoleId(db, code, appId) {
+    if (appId === TEST_APP_ID) {
+        return resolveRoleIdByFixtureKey(db, `ROLE_${code}`);
+    }
+    const roleName = ROLE_CODE_TO_NAME[code];
+    if (!roleName) return null;
+    const doc = await db.collection('roles').findOne(
+        { roleName, appId },
+        { projection: { _id: 1 } }
+    );
+    return doc ? doc._id : null;
+}
+
+/**
+ * Resolve OR upsert the organizer doc to attach for an RO-tier elevation.
+ * - Pattern A (appId="99"): resolve E2EORG fixture (must exist; preset-baseline seeds it).
+ * - Pattern B (appId="1"/"2"): auto-upsert per-correlation test organizer at appId,
+ *   marked with _testFixtureKey "E2EORG-<correlationId>" + _testCorrelationId + isE2ETestPlaceholder.
+ *   Cascade-deleted by delete-test-user-by-correlation per Quinn arbitration 2026-05-06T22:34.
+ * - Caller override: organizerIdOverride bypasses both paths; verifies existence at appId.
+ */
+async function resolveOrUpsertTestOrganizer(db, { appId, correlationId, organizerIdOverride }) {
+    const { ObjectId } = require('mongodb');
+    if (organizerIdOverride) {
+        const oid = typeof organizerIdOverride === 'string' ? new ObjectId(organizerIdOverride) : organizerIdOverride;
+        const doc = await db.collection('organizers').findOne({ _id: oid, appId });
+        if (!doc) {
+            const e = new Error(`organizerId override "${organizerIdOverride}" not found at appId="${appId}"`);
+            e.code = 'organizer_override_not_found';
+            throw e;
+        }
+        return { organizerId: doc._id, action: 'override', organizerFixtureKey: doc._testFixtureKey || null };
+    }
+
+    if (appId === TEST_APP_ID) {
+        const e2eorg = await db.collection('organizers').findOne(
+            { _testFixtureKey: 'E2EORG', appId: TEST_APP_ID },
+            { projection: { _id: 1 } }
+        );
+        if (!e2eorg) {
+            const e = new Error('E2EORG fixture not found at appId="99". Run preset-baseline first to seed manifest v1.1.');
+            e.code = 'e2eorg_fixture_not_seeded';
+            throw e;
+        }
+        return { organizerId: e2eorg._id, action: 'fixture_resolved', organizerFixtureKey: 'E2EORG' };
+    }
+
+    if (!correlationId) {
+        const e = new Error(`Pattern B (appId="${appId}") requires correlationId for per-spawn test-organizer creation`);
+        e.code = 'correlationId_required_for_pattern_b';
+        throw e;
+    }
+    const fixtureKey = `E2EORG-${correlationId}`;
+    const result = await db.collection('organizers').findOneAndUpdate(
+        { _testFixtureKey: fixtureKey, appId },
+        {
+            $set: {
+                _testFixtureKey: fixtureKey,
+                _testCorrelationId: correlationId,
+                isE2ETestPlaceholder: true,
+                shortName: fixtureKey,
+                name: `E2E Test Organizer (${correlationId})`,
+                fullName: `E2E Test Organizer (${correlationId})`,
+                description: `Synthetic test organizer for Pattern B per-spawn UC; cascade-deleted with delete-test-user-by-correlation. Do not display on real surfaces.`,
+                isActive: true,
+                isEnabled: true,
+                isApproved: true,
+                wantRender: true,
+                organizerTypes: {
+                    isEventOrganizer: true,
+                    isVenue: false,
+                    isTeacher: false,
+                    isMaestro: false,
+                    isDJ: false,
+                    isOrchestra: false,
+                    isTaxiDancer: false,
+                    isVendor: false,
+                },
+                appId,
+                updatedAt: new Date(),
+            },
+            $setOnInsert: { createdAt: new Date() },
+        },
+        { upsert: true, returnDocument: 'after' }
+    );
+    const upsertedDoc = result && (result.value || result);
+    return {
+        organizerId: upsertedDoc._id,
+        action: result.lastErrorObject?.upserted ? 'created' : 'reused',
+        organizerFixtureKey: fixtureKey,
+    };
+}
+
 module.exports = {
     loadManifest,
     loadTestUsers,
     expandDateToken,
     resolveNameToId,
     resolveRoleIdByFixtureKey,
+    resolveRoleId,
+    resolveOrUpsertTestOrganizer,
     transformEventFields,
     transformOrganizerFields,
     getE2EUserBaselineShape,
@@ -238,4 +351,5 @@ module.exports = {
     TEST_USERS_PATH,
     RESERVED_CORRELATION_ID,
     TEST_APP_ID,
+    ROLE_CODE_TO_NAME,
 };

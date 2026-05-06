@@ -1,40 +1,38 @@
-# Role-Elevation Matrix v1.0 PRE-FOLD
+# Role-Elevation Matrix v1.0 FINAL
 
-**Status:** v1.0 PRE-FOLD 2026-05-06T22:35 UTC — Toby ACK Option B+D hybrid 22:30. NU→RO scope ratified for Story 2.3 Sprint 2 fire. RA rows PENDING DASH CALOPS FILL (placeholder per Sarah-side default-assumption; 30-min Toby copy/paste relay window from 22:30).
-**Owners:** Sarah (TT FE contract) + Dash (CalOps contract for RA rows); Quinn arbiter; Fulton commits + impls.
+**Status:** v1.0 FINAL 2026-05-06T22:42 UTC — RATIFIED Quinn 22:42 single-round; all TODO-FULTON items RESOLVED 22:39 + 22:43; full Dash CalOps fold; Path A (full Dash engagement) confirmed.
+**Owners:** Sarah (TT FE contract) + Dash (CalOps contract); Quinn arbiter; Fulton commits + impls.
 **Consumer:** `elevate-test-user-role` (TEST-mutator endpoint, per ADR-0017)
-**Companion fixture:** `baseline/manifest.json` schemaVersion 1.1 (events + organizer + 5-role seed; commit `b14afdc` 2026-05-06T19:43)
-**Companion spec:** `baseline/e2euser-spec.md` (E2EUSER baseline shape v1.0; commit `391f2ad`)
-**Companion registry:** `baseline/test-users.json` (UID registry; Fulton-populated on first reset-test-user fire per Pattern A bootstrap)
+**Companion fixture:** `baseline/manifest.json` schemaVersion 1.1 (commit `b14afdc`)
+**Companion spec:** `baseline/e2euser-spec.md` (commit `391f2ad`)
 
 ## Architecture frame
 
-- Test-mutator endpoint is **partition-scoped state mutator** (per Pattern A: `appId="99"` + `_testFixtureKey`; per Pattern B: `appId="1"` + markers `isE2ETestUser` + `_testCorrelationId`), NOT a real-app behavioral test of apply/elevation flows.
-- Real-app behavioral testing of apply (TT FE-driven `UserSettingsApply.js`) or admin elevation (CalOps-driven) belongs to dedicated UCs that drive those flows directly.
-- `elevate-test-user-role` mirrors the **post-state** of either real flow without invoking either.
-- Intentional divergence from atomic `/self-apply` (CALBEAF-155 / TIEMPO-441, BE-side, queued behind M5 + E2E framework). Different contracts: real-side-effects vs partition-scoped state setup.
+- Test-mutator endpoint is **partition-scoped state mutator** (Pattern A: `appId="99"` + `_testFixtureKey`; Pattern B: `appId="1"` + markers `isE2ETestUser` + `_testCorrelationId`), NOT a real-app behavioral test of apply/elevation flows.
+- Real-app behavioral testing of apply (TT FE) or admin elevation (CalOps-driven) belongs to dedicated UCs that drive those flows directly.
+- `elevate-test-user-role` mirrors **post-state** of either real flow without invoking either.
+- Intentional divergence from atomic `/self-apply` (CALBEAF-155 / TIEMPO-441; queued behind M5 + E2E framework).
 
-**Manifest v1.1 prerequisite (commit `b14afdc`, 2026-05-06T19:43 UTC):** `roles[]` seed at `appId: "99"` (string) with all 5 codes (NU/SL/RO/RA/SA) and verbatim `permissions[]` from production `appId: "1"` docs. Idempotent migration normalized pre-existing events/organizers from `appId: 99` (number) → `appId: "99"` (string) via upsert. `_testFixtureKey: "ROLE_<CODE>"` pattern enables resolve-by-key for `roleIds[*]` in test-mutator transitions.
+**Manifest v1.1 prerequisite (commit `b14afdc`):** `roles[]` seed at `appId: "99"` with all 5 codes (NU/SL/RO/RA/SA) and verbatim `permissions[]` from production `appId: "1"`. `_testFixtureKey: "ROLE_<CODE>"` enables resolve-by-key for Pattern A.
+
+**Field-name canonical (Fulton mongosh + code-trace 22:39):** Backend canonical for admin sidecar = `localAdminInfo` (per `calendar-be-af/src/functions/UserLogins.js:444,475`). CalOps `useUsers.js:85+473-474` reads/writes `localAdminInfo` with UI-side rename to `regionalAdminInfo`. **Test-mutator writes `localAdminInfo` (BE canonical).**
 
 ## TT FE write paths to userLogins (grounding)
 
 | Path | Use | Source |
 |---|---|---|
-| `POST /api/userlogins/` | Initial userLogin doc creation post-Firebase-signup | `tangotiempo.com/src/app/contexts/AuthContext.js:489-530` |
+| `POST /api/userlogins/` | Initial userLogin doc creation post-Firebase-signup | `AuthContext.js:489-530` |
 | `PUT /api/userlogins/updateUserInfo` | Profile field updates | `useUserLogins.js:158` |
-| `PUT /api/userlogins/{firebaseUserId}/roles` | Role array mutations (apply-as-organizer flow) | `useUserLogins.js:165` |
+| `PUT /api/userlogins/{firebaseUserId}/roles` | Role array mutations (apply-as-organizer flow); SET semantics, REPLACES whole roleIds array (per Dash `useRoles.js:201`) | `useUserLogins.js:165` |
 
-**Apply-as-organizer flow** (TT FE-driven, NOT CalOps-only): `src/app/components/Modals/UserSettings/UserSettingsApply.js`. User clicks Apply → FE bundles `[NU._id, SL._id, RO._id]` + creates organizer record + sets `regionalOrganizerInfo` flags + logs role change.
+**Apply-as-organizer flow** (TT FE-driven, NOT CalOps-only): `UserSettingsApply.js`. User clicks Apply → FE bundles `[NU._id, SL._id, RO._id]` + creates organizer record + sets `regionalOrganizerInfo` flags + logs role change.
 
 ## Spotlighter context (TT FE knowledge)
 
-- `roleName: "Spotlighter"`, `roleNameCode: "SL"` (per `useMessages.js:20`, `ComposeMessageModal.js:43,59`)
-- TIEMPO-431: Spotlighter is "real" (renders as normal role)
-- ROLE_DISPLAY_ORDER (TIEMPO-431, `SiteMenuBarUserDrawer.js:38`): `['NamedUser', 'Spotlighter', 'RegionalOrganizer', 'RegionalAdmin', 'SystemAdmin', 'SystemOwner']`
-- Master code constant: `SPOTLIGHTER: 'Spotlighter'` in `src/app/utils/masterData.js:5`
-- Capabilities: TIEMPO-433 SpotlightOnlyModal (stripped-down view); TIEMPO-436 mirrors RO menu but limited; TIEMPO-438 hides image controls
-- **No scoping sidecar:** no organizerId, no venueId, no region/city. Pure role-tier in `roleIds[]`.
-- **NU+SL+RO retention invariant** (TIEMPO-443, `UserSettingsApply.js:78,230-232`): apply flow bundles `[NU._id, SL._id, RO._id]` so user is never orphaned to RO-only.
+- `roleName: "Spotlighter"`, `roleNameCode: "SL"` per Fulton mongosh
+- TIEMPO-431 made Spotlighter "real"; ROLE_DISPLAY_ORDER: `['NamedUser', 'Spotlighter', 'RegionalOrganizer', 'RegionalAdmin', 'SystemAdmin', 'SystemOwner']`
+- **No scoping sidecar** for Spotlighter
+- **NU+SL+RO retention invariant** (TIEMPO-443, `UserSettingsApply.js:230-232`)
 
 ## Transition rows
 
@@ -42,140 +40,160 @@
 
 ```json
 {
-  "roleIds": ["<resolve _testFixtureKey: ROLE_NU>", "<resolve _testFixtureKey: ROLE_SL>"],
-  "regionalOrganizerInfo": { "organizerId": null, "isActive": false, "isApproved": false, "isEnabled": false },
-  "regionalAdminInfo": { "regionAdminId": null, "isActive": false }
+  "roleIds": ["<resolve ROLE_NU>", "<resolve ROLE_SL>"],
+  "regionalOrganizerInfo": { "organizerId": null, "isActive": false, "isApproved": false, "isEnabled": false, "allowedMasteredRegionIds": [] },
+  "localAdminInfo": { "isActive": false, "isApproved": false, "isEnabled": false, "allowedAdminMasteredRegionIds": [], "allowedAdminMasteredDivisionIds": [], "allowedAdminMasteredCityIds": [] }
 }
 ```
-
-- **Sidecar info:** none flips
-- **Notes:** No current UC exercises Spotlighter-only tier; row provided for forward-compatibility per ROLE_DISPLAY_ORDER
 
 ### NU → RO (regional organizer) — Story 2.3 / UC-0003 PRIMARY TRANSITION
 
 ```json
 {
-  "roleIds": [
-    "<resolve _testFixtureKey: ROLE_NU>",
-    "<resolve _testFixtureKey: ROLE_SL>",
-    "<resolve _testFixtureKey: ROLE_RO>"
-  ],
+  "roleIds": ["<resolve ROLE_NU>", "<resolve ROLE_SL>", "<resolve ROLE_RO>"],
   "regionalOrganizerInfo": {
-    "organizerId": "<resolve _testFixtureKey: E2EORG>",
+    "organizerId": "<resolve _testFixtureKey: E2EORG (Pattern A) | per-spawn organizer _id (Pattern B)>",
     "isActive": true,
     "isApproved": true,
-    "isEnabled": true
+    "isEnabled": true,
+    "allowedMasteredRegionIds": ["<region-objectId>"]
   }
 }
 ```
 
-- **NU+SL retention** per TIEMPO-443 invariant
-- **`isEnabled` direct-write:** Test-mutator writes `true` directly. AuthContext.js:170-178 warning logic requires all three flags `true` for working RO state.
-  - Real-flow actor: PENDING DASH CALOPS FILL (placeholder default-assumption: BE `/roles` endpoint auto-flips, OR CalOps admin manually toggles, OR atomic `/self-apply` when CALBEAF-155 lands; non-blocking on test-mutator impl since end-state is known)
-- **Request body shape:** `{ userId, targetRole: "RegionalOrganizer", organizerId, appId }` — `organizerId` defaults to E2EORG by `_testFixtureKey` lookup if omitted; `appId` defaults per Pattern A (`"99"`) or Pattern B (`"1"`) per caller's partition context
+- **NU+SL retention** per TIEMPO-443
+- **All 3 sidecar flags `true` + `allowedMasteredRegionIds` populated** — Dash CalOps `createOrganizer` atomic-3-flag write semantics (`useOrganizerActions.js:87-93`)
+- **`isEnabled` actor (Dash):** TT FE apply-flow does NOT write `isEnabled`. Real-flow path: TT user applies → BE pending state → CalOps admin acts via `createOrganizer` atomic 3-flag write OR individual toggle (`UserEditForm.js:394-405`). Test-mutator writes all atomically, mirrors `createOrganizer`.
+- **Request body shape:** `{ userId, targetRole: "RegionalOrganizer", organizerId, allowedMasteredRegionIds, appId }` — `organizerId` defaults to E2EORG by fixture-key for Pattern A; Pattern B callers MUST provide explicitly OR endpoint auto-creates per-spawn organizer with `_testFixtureKey: "E2EORG-${correlationId}"` (cascade-deleted by delete-test-user-by-correlation per Quinn 22:34 arbitration)
 
-### NU → RA (regional admin) — PENDING DASH CALOPS FILL
+### NU → RA (regional admin) — Dash CalOps fold
 
-```
-PLACEHOLDER — Dash to populate when engaged.
-
-Sarah-side default-assumption (best-effort, may be incorrect):
-- roleIds: [<resolve ROLE_NU>, <resolve ROLE_RA>]  (Note: SL bundling for RA is unknown; default-assumption is NOT bundled — RA is admin-tier, not content-tier)
-- regionalAdminInfo: {
-    regionAdminId: <unknown — Dash to define schema>,
-    isActive: true,
-    isEnabled: <unknown — same actor-Q as RO>,
-    isApproved: <unknown>
-    /* + any region/city/country scoping fields per CalOps semantics */
+```json
+{
+  "roleIds": ["<resolve ROLE_NU>", "<resolve ROLE_RA>"],
+  "localAdminInfo": {
+    "isActive": true,
+    "isApproved": true,
+    "isEnabled": true,
+    "allowedAdminMasteredRegionIds": ["<region-objectId>"],
+    "allowedAdminMasteredDivisionIds": [],
+    "allowedAdminMasteredCityIds": []
   }
-- Scoping: regionId? cityIds[]? countryId? — Dash to define
-- Spotlighter bundling for RA: default-assumption NO; Dash confirms or corrects
-
-Quinn arbitration if Dash content arrives during 22:30-23:00 window: Sarah folds inline → full v1.0 (RA rows filled) + Quinn ratifies in single round.
+}
 ```
 
-### RO → RA (admin promotion of existing organizer) — PENDING DASH CALOPS FILL
+- **No SL bundle** — RA is admin-tier orthogonal to content-tier Spotlighter; no TIEMPO-443-equivalent coupling found in CalOps grep
+- **3 parallel scoping arrays** (`UserEditForm.js:537-583`, `permissions.js:80-140`):
+  - `allowedAdminMasteredRegionIds[]` — region-tier scope
+  - `allowedAdminMasteredDivisionIds[]` — division-tier scope
+  - `allowedAdminMasteredCityIds[]` — city-tier scope
+- **Permission check is OR** — admin has access if any of `regionId`/`divisionId`/`cityId` ∈ corresponding array (`permissions.js:canManageEventsInLocation:215-237`)
+- **Minimum viable scope:** at least ONE of the 3 arrays must have ≥1 ObjectId
+- **Default for partition-scoped test setup:** single region in `allowedAdminMasteredRegionIds`; other 2 arrays empty
+- **Triumvirate ALL-three-true gate** parallel to RO (`permissions.js:isActiveAdmin:199-206`)
+- **No real-flow self-apply for RA** — admin-granted only. RA write paths: (a) CalOps admin UI, (b) test-mutator `elevate-test-user-role`, (c) manual mongosh override
+- **Direct-write semantics** confirmed Fulton 22:39 — test-mutator writes all 3 flags directly verbatim; no BE-side derivation
 
-```
-PLACEHOLDER — Dash to populate when engaged.
+### RO → RA (admin promotion of existing organizer) — Dash CalOps fold
 
-Sarah-side default-assumption (best-effort, may be incorrect):
-- roleIds: [<ROLE_NU>, <ROLE_SL>, <ROLE_RO>, <ROLE_RA>]  (preserves RO state on RA promotion; assumption based on FE display-order showing RA as superset)
-- regionalOrganizerInfo: { /* preserved from RO state */ }
-- regionalAdminInfo: { /* per NU→RA placeholder; PENDING DASH */ }
-- Quinn arbitration on RO retention if Dash differs.
+```json
+{
+  "roleIds": ["<resolve ROLE_NU>", "<resolve ROLE_SL>", "<resolve ROLE_RO>", "<resolve ROLE_RA>"],
+  "regionalOrganizerInfo": { "<preserved from RO state>": "..." },
+  "localAdminInfo": { "<populated per NU→RA shape>": "..." }
+}
 ```
+
+- **`regionalOrganizerInfo` PRESERVED** from RO state on RA promotion (Dash confirms; RO→RA additive)
+- **SL retained** if user has it (per TIEMPO-443; preserved across RA promotion)
+
+### RA → NU (revert) — Dash CalOps fold (defense-coverage, no current UC)
+
+```json
+{
+  "roleIds": ["<resolve ROLE_NU>"],
+  "localAdminInfo": {
+    "isActive": false,
+    "isApproved": false,
+    "isEnabled": false,
+    "allowedAdminMasteredRegionIds": [],
+    "allowedAdminMasteredDivisionIds": [],
+    "allowedAdminMasteredCityIds": []
+  }
+}
+```
+
+- Mirrors CalOps `disconnectUserFromOrganizer` flag-clearing pattern
+- All flags `false`; arrays cleared (Dash recommends cleared for explicit revert)
 
 ## Resolution logic
 
 | Field | Resolution method | Source collection | Match field |
 |---|---|---|---|
-| `roleIds[*]` | resolve-by-fixture-key (preferred) OR resolve-by-name (fallback) | `roles` | `_testFixtureKey: "ROLE_<CODE>"` (`ROLE_NU` / `ROLE_SL` / `ROLE_RO` / `ROLE_RA` / `ROLE_SA`) — preferred. Fallback: `roleName` + `appId: "99"` (string) |
-| `regionalOrganizerInfo.organizerId` | resolve-by-fixture-key | `organizers` | `_testFixtureKey` (default `"E2EORG"`) + appId per partition |
-| `regionalAdminInfo.regionId` | TBD by Dash | (unknown) | TBD |
+| `roleIds[*]` Pattern A (appId="99") | resolve-by-fixture-key (preferred) | `roles` | `_testFixtureKey: "ROLE_<CODE>"` |
+| `roleIds[*]` Pattern B (appId="1") | resolve-by-name (fallback) | `roles` | `roleName` (full canonical: "NamedUser" / "Spotlighter" / "RegionalOrganizer" / "RegionalAdmin" / "SystemAdmin") + `appId: "1"` |
+| `regionalOrganizerInfo.organizerId` | resolve-by-fixture-key Pattern A; auto-upsert per-spawn for Pattern B | `organizers` | Pattern A: `_testFixtureKey: "E2EORG"`; Pattern B: `_testFixtureKey: "E2EORG-${correlationId}"` (auto-upserted by elevate-test-user-role) |
+| `localAdminInfo` regions/divisions/cities | resolve-by-fixture-key | `mastered*` collections | Per-test fixture (manifest TBD if E2E expansion) |
+
+**Resolve-by-name canonical (per Dash; Quinn Item #1 arbitration 22:36):** matrix uses `roleName` full canonical for Pattern B fallback (cross-scheme safe vs CalOps frontend `useRoles.js:226-229` SYA/RGA/RGO hardcoding which is dead code per Fulton mongosh 22:39 — Phase B retro item; Sarah PO-discretion TIEMPO ticket post-Sprint-2 close).
 
 ## Idempotency contract
 
-Mirror of preset-baseline upsert pattern + Pattern A reset-test-user precedent:
-- Query userLogins doc by `{ firebaseUserId, appId }` compound (partition-aware per Pattern A vs B asymmetry; per Sarah compound-scope lesson 2026-05-06)
+- Query userLogins doc by `{ firebaseUserId, appId }` compound (per Sarah compound-scope lesson)
 - If `roleIds[]` already contains target role + sidecar info already at expected state → return `{ action: "noOp" }`
-- Else upsert userLogins doc to target shape → return `{ action: "applied" }`
-- Idempotent: repeated calls converge to same end-state without side effects
+- Else upsert userLogins doc to target shape (SET semantics — replace whole `roleIds[]`) → return `{ action: "applied" }`
 
 ## Side-effects policy — Q9 OPTION B RATIFIED (Quinn 2026-05-06T19:32)
 
 **`elevate-test-user-role` does NOT emit:**
-- Audit-log entries (real apply/elevation flows do; test-mutator does not)
-- Message-admin notifications (real flows do; test-mutator does not)
-- Role-change-log entries (FE `logRoleChange()` at `UserSettingsApply.js:247` runs in real flow only)
+- Audit-log entries
+- Message-admin notifications
+- Role-change-log entries
 
-**Rationale (joint Sarah + Fulton vote, ratified Quinn):**
-1. Test-mutator endpoint is for state setup, not behavioral testing of audit/messaging path
-2. UCs that test audit-log behavior drive the real flow directly, not the mutator
-3. `appId="99"` partition (Pattern A) and marker-tagged docs (Pattern B) are isolated per ADR-0004 + ADR-0017 Layer-3
-4. `reset-orphans` cleans leaked side-effects on appId="99"; afterAll cleanup handles Pattern B
-5. Convergence with `/self-apply` (CALBEAF-155) NOT required — intentional divergence by design
+**CalOps client-side parity confirmed (per Dash grep):** zero hits for `audit | message-admin | messageAdmin | emit | side-effect` in CalOps `src/`. CalOps real-flow client behavior is identical to test-mutator skip behavior. BE-side audit emission unknown (Phase B retro material).
 
 ## Q ratifications table
 
 | Q | Topic | Decision | Status |
 |---|---|---|---|
-| Q1 | Role names + codes | `roleName` + `roleNameCode` BOTH PRESENT on appId="1" docs (Fulton mongosh 19:36, 11/12 docs — Spotlighter source-data nit fixed in TEST per Option 4 + CALBEAF-182); v1.1 manifest seed (commit `b14afdc`) populates appId="99" partition with all 5 codes (NU/SL/RO/RA/SA) | OK Sarah + Fulton joint (mongosh-grounded) |
-| Q2 | NU→RO scoping rules | `userId` + `targetRole` + `organizerId` (default E2EORG by fixture-key) + `appId` (Pattern A "99" or Pattern B "1" per caller partition) | OK Sarah |
-| Q3 | NU→RO sidecar flags | All three (`isActive`, `isApproved`, `isEnabled`) flip `true`; test-mutator writes directly | OK Sarah; Dash to clarify real-flow actor for `isEnabled` (non-blocking) |
-| Q4 | RA scoping rules | PENDING DASH | Dash placeholder |
-| Q5 | RA sidecar flags | PENDING DASH (parallel `isEnabled` actor question recurses) | Dash placeholder |
-| Q6 | NU+SL+RO bundle invariant | Test-mutator MUST honor TIEMPO-443 | OK Sarah (FE-grounded) |
-| Q7 | Idempotency contract | noOp on already-at-target; mirrors preset-baseline + reset-test-user pattern; compound-scope `{ firebaseUserId, appId }` per Sarah lesson | OK Sarah + Fulton joint |
-| Q8 | emailVerified Option-b stamp | `true` steady state, no per-transition action; handled separately by `mark-test-user` (A2 design) | OK E2EUSER spec v1.0 Q4 inheritance |
-| Q9 | Side-effects (audit-log + message-admin) | Option B (skip both) | OK Quinn ratified 2026-05-06T19:32 |
-| Q10 | CALBEAF-155 / atomic `/self-apply` convergence | Intentional divergence by design (different contracts) | OK Sarah + Fulton joint |
-| Q11 | BE userlogins POST handler on missing role | Soft-fallback to `roleIds: []` (`calendar-be-af/.../UserLogins.js:363-369`); does NOT throw on lookup miss. Empty roleIds + TIEMPO-430 FE filter → AnonymousUser fallback. v1.1 manifest seed unblocks via partition seed | OK Fulton-verified |
-| Q12 | Pattern A vs B partition asymmetry | Pattern A = appId="99" partition isolation; Pattern B = appId="1" markers + ADR-0017 Layer-3 marker REJECT as full safety burden | OK Sprint 1 architectural finding (Sarah + Fulton + Gauge) |
+| Q1 | Role names + codes | `roleName` full canonical preferred for resolve. Pattern A: `_testFixtureKey: "ROLE_<CODE>"`; Pattern B: `roleName + appId="1"`. CalOps SYA/RGA/RGO hardcoding is dead code (Fulton mongosh confirms zero DB matches) → Phase B retro | ✅ Sarah + Fulton + Dash + Quinn (Item #1 arbitration 22:36) |
+| Q2 | NU→RO scoping rules | `userId` + `targetRole` + `organizerId` + `allowedMasteredRegionIds[]` + `appId` | ✅ Sarah + Dash |
+| Q3 | NU→RO sidecar flags | All 3 (`isActive`, `isApproved`, `isEnabled`) flip `true` atomic; `allowedMasteredRegionIds[]` populated. Real-flow actor: CalOps `createOrganizer` admin action | ✅ Sarah + Dash |
+| Q4 | RA scoping rules | 3 parallel arrays `allowedAdmin{Region,Division,City}MasteredIds[]`; OR-permission semantics; minimum 1 ObjectId in ≥1 array | ✅ Dash |
+| Q5 | RA sidecar flags | Triumvirate parallel to RO; ALL 3 true gate. Direct-write confirmed (Fulton 22:39 mongosh + code-trace `UserLogins.js`); test-mutator writes all 3 flags atomically; no BE-side derivation | ✅ Dash + Fulton mongosh confirm |
+| Q6 | NU+SL+RO bundle invariant (TIEMPO-443) | RO transition MUST honor; RA standalone (no SL bundle) | ✅ Sarah + Dash confirmed |
+| Q7 | Idempotency contract | noOp on already-at-target; SET semantics for roleIds[]; compound-scope `{firebaseUserId, appId}` | ✅ Sarah + Fulton + Dash |
+| Q8 | emailVerified Option-b stamp | Handled by `mark-test-user` (A2 design); orthogonal to role transition | ✅ E2EUSER spec v1.0 inheritance |
+| Q9 | Side-effects skip | Option B; CalOps client-side parity confirmed; BE-side audit unknown (Phase B retro item) | ✅ Quinn ratified 19:32 + Dash CalOps grep confirm |
+| Q10 | CALBEAF-155 / `/self-apply` convergence | Intentional divergence | ✅ Sarah + Fulton joint |
+| Q11 | BE userlogins POST handler on missing role | Soft-fallback to `roleIds: []` (`UserLogins.js:363-369`); v1.1 manifest seed unblocks | ✅ Fulton-verified |
+| Q12 | Pattern A vs B partition asymmetry | Pattern A appId="99" partition isolation; Pattern B appId="1" markers + ADR-0017 Layer-3 marker REJECT | ✅ Sprint 1 architectural finding |
+| TODO-FULTON-1 | (CalOps codes vs Fulton mongosh codes) | Resolved: matrix uses `roleName` canonical; SYA/RGA/RGO is dead code → retro | ✅ Quinn Item #1 arbitration + Fulton mongosh 22:39 |
+| TODO-FULTON-2 | Backend field name `localAdminInfo` vs `regionalAdminInfo` | Resolved: BE canonical = `localAdminInfo` (`UserLogins.js:444,475`); CalOps UI alias `regionalAdminInfo` | ✅ Fulton mongosh + code-trace 22:39 |
+| TODO-FULTON-3 | `isActive` semantics manual vs BE-computed | Resolved: direct-write semantics; no BE computation on PUT; test-mutator writes all 3 flags directly | ✅ Fulton code-trace 22:39 |
 
-## CALBEAF-155 cross-ref note
+## CALBEAF-155 cross-ref
 
-- Atomic `/self-apply` endpoint (BE-side, Fulton lane, queued behind M5 + E2E framework) will be a real-app endpoint with real side-effects when landed
-- `elevate-test-user-role` is intentionally divergent: partition-scoped state setup, no side-effects (per Option B)
-- When `/self-apply` lands, TT FE `UserSettingsApply.js` `handleApply` flow simplifies (drops manual stopgap block at lines 282-308); test-mutator contract unchanged
-- Plan §6 BE-lane risk row (per Fulton plan update): **"intentional-divergence-from-CALBEAF-155 by design"**
+- Atomic `/self-apply` (Fulton lane, queued behind M5 + E2E framework) is real-app endpoint with real side-effects
+- `elevate-test-user-role` intentionally divergent: partition-scoped state setup, no side-effects
+- Plan §6 BE-lane risk row: **"intentional-divergence-from-CALBEAF-155 by design"**
 
 ## Cross-app coordination (parking)
 
-Cord (HJ appId=2) will need parallel matrix for HJ-side cohort. Suggested shape: identical structure, swap `appId: 2`, separate role ObjectIds (HJ may have different role names per HJ taxonomy in MASTER-CALENDAR-SYNC). Hand-off via Quinn-as-relay when Cord's cohort fires (Phase I prep). Non-blocking now.
+Cord (HJ appId=2) parallel matrix: identical structure, swap appId, separate role ObjectIds (HJ may have different role names per HJ taxonomy). Phase I prep; Quinn-as-relay when Cord cohort fires.
 
 ## Downstream coupling
 
-- `elevate-test-user-role` endpoint: consumes this matrix
-- `reset-test-user` endpoint: resets to E2EUSER baseline (per `e2euser-spec.md`); inverse of any elevation (NU baseline = no elevations active)
-- `mark-test-user` endpoint (A2): orthogonal — handles markers + emailVerified, not role transitions
-- `delete-test-user-by-correlation` endpoint: orthogonal — Pattern B cleanup
-- `reset-orphans` endpoint: sweeps appId="99" docs lacking `_testFixtureKey` AND `_testCorrelationId` ($exists belt+suspenders per Quinn ratify 2026-05-06T19:51) — does NOT touch correctly-tagged elevation state
-- UCs consuming this matrix: UC-0003 apply-as-organizer (Story 2.3 / Sprint 2 fire); future UCs for RA elevation (TBD when Dash engages); future UCs for RO→RA promotion (TBD)
+- `elevate-test-user-role`: consumes this matrix
+- `reset-test-user`: resets to E2EUSER baseline (`e2euser-spec.md`); Pattern A only
+- `mark-test-user` (A2): orthogonal; handles markers + emailVerified, not role transitions
+- `delete-test-user-by-correlation` (with cascade extension per Quinn 22:34): Pattern B cleanup; cascades organizer with `_testFixtureKey: "E2EORG-${correlationId}"` at appId
+- `reset-orphans`: Pattern A only (appId="99"); does NOT sweep Pattern B
+- UCs: UC-0003 apply-as-organizer (Story 2.3 Sprint 2; uses real flow + this endpoint for state setup); future UCs for RA elevation; future UCs for RO→RA promotion
 
 ## Change log
 
-- v0.1 PRE-FOLD (2026-05-06T19:31 UTC) — Sarah authored TT-FE-side; Dash CalOps-side rows pending; Quinn arbitration on Q9 (Option B) pending
-- v0.1 deltas (2026-05-06T19:45 UTC) — Sarah folded post-mongosh: `roleNameCode` confirmed; manifest v1.1 prereq; resolution logic via `_testFixtureKey: "ROLE_<CODE>"`; transition row `_testFixtureKey` syntax; Q11 BE-handler intel addendum
-- v1.0 PRE-FOLD (2026-05-06T22:35 UTC) — Toby ACK Option B+D hybrid; assembled v0.1 + 5 deltas + Q9 Option-B ratified + Q1 mongosh-confirmed + Q12 Pattern A vs B asymmetry + manifest v1.1 prereq context. RA rows placeholder PENDING DASH CALOPS FILL (30-min Toby copy/paste relay window from 22:30 UTC). NU→RO scope ratified for Story 2.3 Sprint 2 fire per Plan §4.
-- v1.0 (anticipated when Dash engages) — RA rows filled + Q4/Q5 ratified + Quinn single-round ratify
+- v0.1 PRE-FOLD (2026-05-06T19:31 UTC) — Sarah TT-FE-side initial; RA placeholders
+- v0.1 deltas (2026-05-06T19:45 UTC) — `roleNameCode` confirmed; manifest v1.1 prereq; resolution-by-fixture-key
+- v1.0 PRE-FOLD (2026-05-06T22:35 UTC) — Toby ACK Option B+D hybrid; Quinn ratify 22:36
+- v1.0 FINAL (2026-05-06T22:42 UTC) — Path A confirmed (Dash hub-channel restored 22:36); Sarah single-round-fold of Dash CalOps RA inputs; Quinn Item #1 arbitration on resolve mechanism; Quinn single-round ratify 22:42; Fulton mongosh probes 22:39 (TODO-FULTON-1/2/3 all RESOLVED favorably — matrix content stays as-written; Q-table status updates only); Fulton commits 22:43

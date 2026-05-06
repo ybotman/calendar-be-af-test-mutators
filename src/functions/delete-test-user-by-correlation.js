@@ -1,14 +1,21 @@
 // POST /api/test/delete-test-user-by-correlation
 //
-// Pattern B cleanup primitive (UC-0002 afterAll). Cascades Firebase + Mongo deletion
-// for the ephemeral per-spawn test user.
+// Pattern B cleanup primitive (UC-0002 + UC-0003 afterAll). Cascades Firebase + Mongo
+// deletion for the ephemeral per-spawn test user, with organizer cascade for UC-0003.
 //
 // Body:
 //   correlationId:    string (required)
 //   firebaseUserId?:  string (optional override; enables Sarah Option-(a) orphan-recovery fallback)
 //   appId?:           string (default "99"); real-app signup-created users land at appId="1" per
-//                     BE POST /api/userlogins/ default. Pattern B (UC-0002) sends "1"; Pattern A
-//                     defaults to "99". Per Quinn 2026-05-06T20:18 architectural finding from Gauge.
+//                     BE POST /api/userlogins/ default. Pattern B (UC-0002/UC-0003) sends "1";
+//                     Pattern A defaults to "99". Per Quinn 2026-05-06T20:18 architectural finding.
+//
+// Organizer cascade per Quinn arbitration 2026-05-06T22:34 (UC-0003 Story 2.3 cleanup contract):
+//   Pattern B per-spawn organizers live at appId="1" with `_testFixtureKey: "E2EORG-${correlationId}"`
+//   (created by elevate-test-user-role NU→RO transition). reset-orphans intentionally does NOT
+//   sweep appId="1" (catastrophic risk against production data partition). Therefore organizer
+//   cleanup MUST happen here. Cascade-delete is symmetric with user-delete — markers signal
+//   test-membership across multiple docs (userLogins + organizer); cleanup primitive deletes both.
 //
 // Effect (in order):
 //   1. Primary lookup: userlogins doc by { _testCorrelationId, appId: "99" } — happy path.
@@ -73,8 +80,17 @@ async function deleteTestUserByCorrelationHandler(request, context) {
             if (target) lookupPath = 'firebaseUserId_fallback';
         }
 
-        // No-Mongo-doc path: still attempt Firebase cleanup if uid known (full orphan recovery)
+        // No-Mongo-doc path: still attempt cascade cleanup of organizer + Firebase user if known
+        // (full orphan recovery; symmetric with happy-path cascade)
         if (!target) {
+            // Cascade-delete organizer by fixtureKey at appId (idempotent on missing)
+            const organizerFixtureKey = `E2EORG-${correlationId}`;
+            const organizerResult = await db.collection('organizers').deleteMany({
+                _testFixtureKey: organizerFixtureKey,
+                appId,
+            });
+            const organizerDeleted = organizerResult.deletedCount;
+
             let firebaseAction = 'skipped_no_uid';
             let firebaseDeleted = false;
             if (firebaseUserId) {
@@ -91,6 +107,16 @@ async function deleteTestUserByCorrelationHandler(request, context) {
                     }
                 }
             }
+
+            const anythingDeleted = firebaseDeleted || organizerDeleted > 0;
+            const action = anythingDeleted
+                ? (firebaseDeleted && organizerDeleted > 0
+                    ? 'deleted_via_firebase_uid_fallback_no_mongo_with_organizer_cascade'
+                    : firebaseDeleted
+                        ? 'deleted_via_firebase_uid_fallback_no_mongo'
+                        : 'deleted_orphan_organizer_no_user')
+                : 'noOp';
+
             return {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
@@ -99,8 +125,9 @@ async function deleteTestUserByCorrelationHandler(request, context) {
                     correlationId,
                     appId,
                     mongo: { deleted: 0, firebaseUserId: null },
+                    organizer: { deleted: organizerDeleted, fixtureKey: organizerFixtureKey },
                     firebase: { deleted: firebaseDeleted, action: firebaseAction },
-                    action: firebaseDeleted ? 'deleted_via_firebase_uid_fallback_no_mongo' : 'noOp',
+                    action,
                     lookupPath: 'none',
                     timestamp: new Date().toISOString(),
                 }),
@@ -129,8 +156,19 @@ async function deleteTestUserByCorrelationHandler(request, context) {
 
         const targetUid = target.firebaseUserId;
 
-        // Delete Mongo doc first (so reset-orphans on retry is idempotent)
+        // Delete Mongo userlogins doc first
         const mongoResult = await userlogins.deleteOne({ _id: target._id });
+
+        // Cascade-delete organizer with _testFixtureKey: "E2EORG-${correlationId}" at same appId
+        // (per Quinn arbitration 2026-05-06T22:34; UC-0003 cleanup contract).
+        // reset-orphans does NOT sweep appId="1" partition (catastrophic risk against production
+        // data); cascade-delete here is the cleanup path for Pattern B per-spawn organizers.
+        const organizerFixtureKey = `E2EORG-${correlationId}`;
+        const organizerResult = await db.collection('organizers').deleteMany({
+            _testFixtureKey: organizerFixtureKey,
+            appId,
+        });
+        const organizerDeleted = organizerResult.deletedCount;
 
         // Delete Firebase user (idempotent on user-not-found)
         let firebaseDeleted = false;
@@ -150,9 +188,14 @@ async function deleteTestUserByCorrelationHandler(request, context) {
             }
         }
 
-        const action = lookupPath === 'firebaseUserId_fallback'
-            ? 'deleted_via_firebase_uid_fallback'
-            : 'deleted';
+        const action = (() => {
+            if (lookupPath === 'firebaseUserId_fallback') {
+                return organizerDeleted > 0
+                    ? 'deleted_via_firebase_uid_fallback_with_organizer_cascade'
+                    : 'deleted_via_firebase_uid_fallback';
+            }
+            return organizerDeleted > 0 ? 'deleted_with_organizer_cascade' : 'deleted';
+        })();
 
         return {
             status: 200,
@@ -162,6 +205,7 @@ async function deleteTestUserByCorrelationHandler(request, context) {
                 correlationId,
                 appId,
                 mongo: { deleted: mongoResult.deletedCount, firebaseUserId: targetUid },
+                organizer: { deleted: organizerDeleted, fixtureKey: organizerFixtureKey },
                 firebase: { deleted: firebaseDeleted, action: firebaseAction },
                 action,
                 lookupPath,

@@ -99,9 +99,9 @@
   ],
   "organizers": [
     {
-      "matchKey": { "_testFixtureKey": "E2E-ORG-01" },
+      "matchKey": { "_testFixtureKey": "E2EORG" },
       "fields": {
-        "_testFixtureKey": "E2E-ORG-01",
+        "_testFixtureKey": "E2EORG",
         "name": "E2E Placeholder Organizer",
         "shortName": "E2EORG",
         "fullName": "E2E Placeholder Organizer",

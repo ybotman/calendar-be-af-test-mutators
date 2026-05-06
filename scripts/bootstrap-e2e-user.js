@@ -63,7 +63,10 @@ async function main() {
         console.log(`[bootstrap] Existing Firebase user found: uid=${user.uid} emailVerified=${user.emailVerified}`);
     } catch (err) {
         if (err.code !== 'auth/user-not-found') throw err;
-        const password = process.env.TEST_USER_PWD || crypto.randomBytes(32).toString('hex');
+        // Firebase password complexity: requires upper case + non-alphanumeric.
+        // Random hex alone is rejected (lowercase + digits only). Append "Aa#" suffix to satisfy.
+        const password = process.env.TEST_USER_PWD
+            || (crypto.randomBytes(32).toString('hex') + 'Aa#');
         user = await auth.createUser({
             email: E2EUSER_EMAIL,
             password,

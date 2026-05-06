@@ -1,26 +1,27 @@
 // POST /api/test/mark-test-user
 //
-// Post-signup test-readiness primitive (Option A2 ratified Quinn 2026-05-06T19:51).
+// Post-signup test-readiness primitive (Option A2 ratified Quinn 2026-05-06T19:51;
+// appId param added per Quinn 2026-05-06T20:18 architectural finding from Gauge UC-0002).
+//
 // Stamps Mongo markers + Firebase emailVerified in a single call.
 //
 // Body:
 //   firebaseUserId: string (required)
 //   correlationId:  string (required)
+//   appId?:         string (default "99"); real-app signup-created users land at appId="1"
+//                   per BE POST /api/userlogins/ default. Pattern B (UC-0002) sends "1";
+//                   Pattern A (E2EUSER persistent) defaults to "99".
 //   markers?:       { isE2ETestUser?: boolean (default true), isE2ETestPlaceholder?: boolean (default false) }
 //   stampFirebaseEmailVerified?: boolean (default true) — Admin SDK Option-b stamp; idempotent
 //
-// Effect:
-//   1. Locate userlogins doc by firebaseUserId.
-//   2. Defense-in-depth REJECT if doc.appId !== "99" (refuses to stamp prod data).
-//   3. updateOne $set { isE2ETestUser, [isE2ETestPlaceholder], _testCorrelationId, updatedAt }.
-//   4. If stampFirebaseEmailVerified (default true): admin.auth().updateUser(uid, { emailVerified: true })
-//      — idempotent on Firebase side; no-ops if already true.
-//
-// Use cases:
-//   - Pattern B post-signup (UC-0002 step 4): closes the Layer-3 REJECT gap window
-//     between userLogins doc creation (real signup completes) and marker stamping.
-//   - Pattern A bootstrap script: stamps E2EUSER persistent doc with markers on first-mint.
-//   - Reusable primitive: any test-user state needing post-creation marker stamp.
+// Architectural note (Quinn 20:18 arbitration):
+//   The appId="99" partition isolation per ADR-0004 applies to FIXTURE data
+//   (events/organizers/roles via _testFixtureKey). User docs created by real-app
+//   signup land at the appId the FE sends (default "1"). For real-flow-created users,
+//   the **marker** (isE2ETestUser + _testCorrelationId), not the partition, is the
+//   load-bearing test-membership signal. mark-test-user STAMPS that marker — defense
+//   layers for this endpoint are: Layer 2 (function key) + the test framework's
+//   knowledge of the freshly-minted firebaseUserId.
 
 'use strict';
 
@@ -28,7 +29,8 @@ const { app } = require('@azure/functions');
 const { getDb } = require('../lib/mongo');
 const { getFirebaseAdmin } = require('../lib/firebase');
 
-const TEST_APP_ID = '99';
+const DEFAULT_APP_ID = '99';
+const ALLOWED_APP_IDS = new Set(['1', '2', '99']);  // TT, HJ, test-fixture partition
 
 async function markTestUserHandler(request, context) {
     context.log('mark-test-user: requested');
@@ -38,28 +40,31 @@ async function markTestUserHandler(request, context) {
         const {
             firebaseUserId,
             correlationId,
+            appId = DEFAULT_APP_ID,
             markers = {},
             stampFirebaseEmailVerified = true,
         } = body;
 
         if (!firebaseUserId) return badRequest('firebaseUserId required');
         if (!correlationId) return badRequest('correlationId required');
+        if (!ALLOWED_APP_IDS.has(appId)) {
+            return badRequest(`appId must be one of: ${Array.from(ALLOWED_APP_IDS).join(', ')} (got "${appId}")`);
+        }
 
         const db = await getDb();
         const userlogins = db.collection('userlogins');
 
-        // Locate target doc — scoped to appId="99" partition. One Firebase user can have docs in
-        // multiple appId partitions (e.g., a real TT user at appId="1" who is also being used as the
-        // E2EUSER persistent test user). We only care about the appId="99" doc here.
-        const target = await userlogins.findOne({ firebaseUserId, appId: TEST_APP_ID });
+        // Locate target doc — scoped to caller-provided appId partition.
+        // Pattern A (default appId="99"): persistent E2EUSER doc.
+        // Pattern B (appId="1"): real-app-signup-created user (per Toby 16:07 lock).
+        // One Firebase user can have docs in multiple appId partitions; the caller knows which.
+        const target = await userlogins.findOne({ firebaseUserId, appId });
         if (!target) {
             return notFound(
-                `userlogins doc not found for firebaseUserId=${firebaseUserId} on appId="${TEST_APP_ID}". ` +
+                `userlogins doc not found for firebaseUserId=${firebaseUserId} on appId="${appId}". ` +
                 `If this is post-signup, ensure BE userlogins POST handler completed before calling mark-test-user.`
             );
         }
-
-        // (target.appId === TEST_APP_ID is guaranteed by the query, but kept as defense-in-depth assertion in test path.)
 
         // Build $set payload
         const isE2ETestUser = markers.isE2ETestUser !== false; // default true
@@ -73,7 +78,7 @@ async function markTestUserHandler(request, context) {
         }
 
         const mongoResult = await userlogins.updateOne(
-            { firebaseUserId, appId: TEST_APP_ID },
+            { firebaseUserId, appId },
             { $set: markerSet }
         );
 
@@ -106,6 +111,7 @@ async function markTestUserHandler(request, context) {
                 ok: true,
                 firebaseUserId,
                 correlationId,
+                appId,
                 mongo: { modified: mongoResult.modifiedCount, matched: mongoResult.matchedCount },
                 firebase: {
                     stamped: firebaseStamped,

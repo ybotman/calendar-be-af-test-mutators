@@ -6,6 +6,9 @@
 // Body:
 //   correlationId:    string (required)
 //   firebaseUserId?:  string (optional override; enables Sarah Option-(a) orphan-recovery fallback)
+//   appId?:           string (default "99"); real-app signup-created users land at appId="1" per
+//                     BE POST /api/userlogins/ default. Pattern B (UC-0002) sends "1"; Pattern A
+//                     defaults to "99". Per Quinn 2026-05-06T20:18 architectural finding from Gauge.
 //
 // Effect (in order):
 //   1. Primary lookup: userlogins doc by { _testCorrelationId, appId: "99" } — happy path.
@@ -36,24 +39,28 @@ const { app } = require('@azure/functions');
 const { getDb } = require('../lib/mongo');
 const { getFirebaseAdmin } = require('../lib/firebase');
 
-const TEST_APP_ID = '99';
+const DEFAULT_APP_ID = '99';
+const ALLOWED_APP_IDS = new Set(['1', '2', '99']);
 
 async function deleteTestUserByCorrelationHandler(request, context) {
     context.log('delete-test-user-by-correlation: requested');
 
     try {
         const body = await request.json();
-        const { correlationId, firebaseUserId } = body;
+        const { correlationId, firebaseUserId, appId = DEFAULT_APP_ID } = body;
 
         if (!correlationId) return badRequest('correlationId required');
+        if (!ALLOWED_APP_IDS.has(appId)) {
+            return badRequest(`appId must be one of: ${Array.from(ALLOWED_APP_IDS).join(', ')} (got "${appId}")`);
+        }
 
         const db = await getDb();
         const userlogins = db.collection('userlogins');
 
-        // Primary lookup: by correlationId + appId
+        // Primary lookup: by correlationId + caller-provided appId
         let target = await userlogins.findOne({
             _testCorrelationId: correlationId,
-            appId: TEST_APP_ID,
+            appId,
         });
         let lookupPath = 'correlationId';
 
@@ -61,7 +68,7 @@ async function deleteTestUserByCorrelationHandler(request, context) {
         if (!target && firebaseUserId) {
             target = await userlogins.findOne({
                 firebaseUserId,
-                appId: TEST_APP_ID,
+                appId,
             });
             if (target) lookupPath = 'firebaseUserId_fallback';
         }
@@ -90,6 +97,7 @@ async function deleteTestUserByCorrelationHandler(request, context) {
                 body: JSON.stringify({
                     ok: true,
                     correlationId,
+                    appId,
                     mongo: { deleted: 0, firebaseUserId: null },
                     firebase: { deleted: firebaseDeleted, action: firebaseAction },
                     action: firebaseDeleted ? 'deleted_via_firebase_uid_fallback_no_mongo' : 'noOp',
@@ -99,11 +107,11 @@ async function deleteTestUserByCorrelationHandler(request, context) {
             };
         }
 
-        // Defense-in-depth REJECT: target.appId must be "99" (already filtered by query, but explicit safety)
-        if (target.appId !== TEST_APP_ID) {
+        // Defense-in-depth REJECT: target.appId must match request.appId (already filtered by query, but explicit safety)
+        if (target.appId !== appId) {
             return forbidden(
                 'rejected_wrong_appid',
-                `target appId="${target.appId}"; refusing delete (only appId="${TEST_APP_ID}" allowed)`
+                `target appId="${target.appId}" mismatches request appId="${appId}"; refusing delete`
             );
         }
 
@@ -152,6 +160,7 @@ async function deleteTestUserByCorrelationHandler(request, context) {
             body: JSON.stringify({
                 ok: true,
                 correlationId,
+                appId,
                 mongo: { deleted: mongoResult.deletedCount, firebaseUserId: targetUid },
                 firebase: { deleted: firebaseDeleted, action: firebaseAction },
                 action,

@@ -176,6 +176,13 @@ async function deleteTestUserByCorrelationHandler(request, context) {
             const orgDoc = await db.collection('organizers').findOne({ _id: organizerIdRef, appId });
             if (!orgDoc) {
                 organizerCascade.action = 'organizer_not_found_or_wrong_appid';
+            } else if (orgDoc._testCorrelationId === 'preset-baseline') {
+                // Pattern A persistent fixture (manifest-seeded; reserved correlation).
+                // MUST NEVER cascade-delete — these are framework infrastructure shared across
+                // all Pattern A spawns. Smoke-discovered 2026-05-06T23:45 — fixture got nuked
+                // because E2EUSER was sole reference, share-check returned 0, cascade fired.
+                organizerCascade.action = 'preset_baseline_fixture_preserved';
+                context.log(`organizer ${organizerIdRef} carries _testCorrelationId="preset-baseline" (Pattern A persistent fixture); skip cascade`);
             } else {
                 // Share-check: count OTHER userlogins docs at the same appId still referencing this organizer
                 // (we already deleted ours, so any remaining count means shared with another user)

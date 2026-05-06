@@ -48,19 +48,18 @@ async function markTestUserHandler(request, context) {
         const db = await getDb();
         const userlogins = db.collection('userlogins');
 
-        // Locate target doc
-        const target = await userlogins.findOne({ firebaseUserId });
+        // Locate target doc — scoped to appId="99" partition. One Firebase user can have docs in
+        // multiple appId partitions (e.g., a real TT user at appId="1" who is also being used as the
+        // E2EUSER persistent test user). We only care about the appId="99" doc here.
+        const target = await userlogins.findOne({ firebaseUserId, appId: TEST_APP_ID });
         if (!target) {
-            return notFound(`userlogins doc not found for firebaseUserId=${firebaseUserId}`);
-        }
-
-        // Defense-in-depth: refuse to stamp non-test-partition data
-        if (target.appId !== TEST_APP_ID) {
-            return forbidden(
-                'rejected_wrong_appid',
-                `mark-test-user refuses to stamp doc with appId="${target.appId}"; only appId="${TEST_APP_ID}" allowed`
+            return notFound(
+                `userlogins doc not found for firebaseUserId=${firebaseUserId} on appId="${TEST_APP_ID}". ` +
+                `If this is post-signup, ensure BE userlogins POST handler completed before calling mark-test-user.`
             );
         }
+
+        // (target.appId === TEST_APP_ID is guaranteed by the query, but kept as defense-in-depth assertion in test path.)
 
         // Build $set payload
         const isE2ETestUser = markers.isE2ETestUser !== false; // default true

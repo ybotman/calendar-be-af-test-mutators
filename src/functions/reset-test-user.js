@@ -69,8 +69,13 @@ async function resetTestUserHandler(request, context) {
             );
         }
 
-        // 3. Layer-3 marker check (only if existing doc — cold-start path bypasses)
-        const target = await userlogins.findOne({ firebaseUserId: userSpec.firebaseUid });
+        // 3. Layer-3 marker check on the APPID="99" doc only (one Firebase user can have docs in
+        // multiple appId partitions; we only care about the test-partition doc here).
+        // Cold-start path: if no appId="99" doc exists, marker check is bypassed and upsert creates new.
+        const target = await userlogins.findOne({
+            firebaseUserId: userSpec.firebaseUid,
+            appId: TEST_APP_ID,
+        });
         if (target) {
             const guard = requireE2ETestUserMarker(target, context);
             if (guard) return guard;

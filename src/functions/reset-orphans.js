@@ -2,11 +2,20 @@
 // correlationId-scoped orphan cleanup per ADR-0004 §Pre-spawn reset.
 //
 // Body: { activeCorrelationIds: [<currently-running spawns>], excludeCorrelationIds: ["preset-baseline"] }
-// Effect: DELETE WHERE { appId: "99", _testCorrelationId: { $nin: activeCorrelationIds + ["preset-baseline"] } }
+// Effect: DELETE WHERE
+//   { appId: "99",
+//     _testCorrelationId: { $exists: true, $nin: activeCorrelationIds + ["preset-baseline"] } }
 //
-// Cascade collections mirror the preset-baseline write surface (organizers, events, calendars)
-// plus userlogins (anticipated by reset-test-user / UC-0002). Belt+suspenders sweep — any
-// appId=99 record without a preserved correlationId is by definition orphan junk.
+// Cascade collections mirror the preset-baseline write surface (organizers, events, calendars,
+// roles) plus userlogins (anticipated by reset-test-user / UC-0002).
+//
+// **Race-window safety (Quinn ratify 2026-05-06T19:51):** the `$exists: true` clause
+// preserves docs that exist on appId="99" but lack a `_testCorrelationId` field. Without
+// it, MongoDB's `$nin` matches missing-field docs (null/missing $nin [array] is true),
+// which would sweep in-flight signup docs in the step-3→step-4 window of UC-0002 (the
+// post-signup, pre-mark-test-user gap). Composed defense-in-depth with the orphan-recovery
+// firebaseUserId fallback in delete-test-user-by-correlation: in-flight docs persist until
+// either mark-test-user stamps them OR afterAll cleanup recovers them.
 //
 // Quinn coordinates the active-spawn-list (knows in-flight Gauge spawns).
 // preset-baseline is preserved (reserved correlationId for shared baseline data).
@@ -29,7 +38,7 @@ async function resetOrphansHandler(request, context) {
 
         const orphanFilter = {
             appId: '99',
-            _testCorrelationId: { $nin: Array.from(preserveSet) }
+            _testCorrelationId: { $exists: true, $nin: Array.from(preserveSet) }
         };
 
         const db = await getDb();

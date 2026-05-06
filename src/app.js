@@ -9,3 +9,5 @@ require('./functions/reset-orphans');
 require('./functions/reset-test-user');
 require('./functions/elevate-test-user-role');
 require('./functions/seed-with-correlation');
+require('./functions/mark-test-user');
+require('./functions/delete-test-user-by-correlation');

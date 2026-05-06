@@ -1,0 +1,19 @@
+{
+  "_authoredBy": "Fulton (BE-side; populated via scripts/bootstrap-e2e-user.js)",
+  "_purpose": "Firebase UID registry for Pattern A persistent test users (E2EUSER cohort) per E2EUSER spec v1.0 (baseline/e2euser-spec.md). Idempotent; one-time bootstrap captures UIDs at first mint; reset-test-user reads at runtime to resolve user identity.",
+  "_companion": "baseline/manifest.json (events + organizer + roles), baseline/e2euser-spec.md (reset-to-NU shape spec)",
+  "schemaVersion": "1.0",
+  "users": {
+    "E2EUSER": {
+      "_testFixtureKey": "E2EUSER",
+      "email": "tango.tiempo.test@gmail.com",
+      "firebaseUid": "ZBQRFr4z5NSGmNDsmZRbkqHI93K2",
+      "displayName": "E2E Test User",
+      "appId": "99",
+      "_testCorrelationId": "preset-baseline",
+      "_status": "ACTIVE",
+      "_bootstrappedAt": "2026-05-06T19:56:10.178Z",
+      "_bootstrapAction": "existing"
+    }
+  }
+}

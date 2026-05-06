@@ -14,8 +14,11 @@ const fs = require('fs');
 const path = require('path');
 
 const MANIFEST_PATH = path.join(__dirname, '..', '..', 'baseline', 'manifest.json');
+const TEST_USERS_PATH = path.join(__dirname, '..', '..', 'baseline', 'test-users.json');
 const RESERVED_CORRELATION_ID = 'preset-baseline';
 const TEST_APP_ID = '99';
+
+let cachedTestUsers = null;
 
 let cachedManifest = null;
 
@@ -164,14 +167,75 @@ async function upsertByMatchKey(db, collectionName, matchKey, fields) {
     };
 }
 
+/**
+ * Load baseline/test-users.json — Pattern A persistent test-user registry per E2EUSER spec v1.0.
+ * Returns { schemaVersion, users: { <fixtureKey>: { _testFixtureKey, email, firebaseUid, displayName, appId } } }.
+ * Empty registry returned if file absent (first-run; bootstrap-e2e-user.js populates).
+ */
+function loadTestUsers() {
+    if (cachedTestUsers) return cachedTestUsers;
+    if (!fs.existsSync(TEST_USERS_PATH)) {
+        return { schemaVersion: '1.0', users: {} };
+    }
+    const raw = fs.readFileSync(TEST_USERS_PATH, 'utf8');
+    cachedTestUsers = JSON.parse(raw);
+    return cachedTestUsers;
+}
+
+/**
+ * Build the post-reset baseline shape for an E2EUSER per spec v1.0.
+ * Caller resolves NU role _id via resolveRoleIdByFixtureKey() before calling.
+ */
+function getE2EUserBaselineShape({ firebaseUid, email, displayName, roleId }) {
+    return {
+        _testFixtureKey: 'E2EUSER',
+        appId: TEST_APP_ID,
+        firebaseUserId: firebaseUid,
+        roleIds: [roleId],
+        regionalOrganizerInfo: {
+            organizerId: null,
+            isActive: false,
+            isEnabled: false,
+            isApproved: false,
+        },
+        regionalAdminInfo: {
+            regionAdminId: null,
+            isActive: false,
+        },
+        localUserInfo: {
+            displayName,
+            email,
+        },
+        active: true,
+        isE2ETestUser: true,
+        _testCorrelationId: RESERVED_CORRELATION_ID,
+    };
+}
+
+/**
+ * Resolve a role _id by _testFixtureKey lookup on appId="99" partition.
+ * Used for roleIds[*] resolution in user-doc baseline shapes + matrix transitions.
+ */
+async function resolveRoleIdByFixtureKey(db, fixtureKey) {
+    const doc = await db.collection('roles').findOne(
+        { _testFixtureKey: fixtureKey, appId: TEST_APP_ID },
+        { projection: { _id: 1 } }
+    );
+    return doc ? doc._id : null;
+}
+
 module.exports = {
     loadManifest,
+    loadTestUsers,
     expandDateToken,
     resolveNameToId,
+    resolveRoleIdByFixtureKey,
     transformEventFields,
     transformOrganizerFields,
+    getE2EUserBaselineShape,
     upsertByMatchKey,
     MANIFEST_PATH,
+    TEST_USERS_PATH,
     RESERVED_CORRELATION_ID,
     TEST_APP_ID,
 };

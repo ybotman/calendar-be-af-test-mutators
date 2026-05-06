@@ -1,144 +1,132 @@
 // POST /api/test/reset-test-user
-// Body: { firebaseUserId: string }  OR  { email: string }
+//
+// Pattern A persistent-cohort reset primitive (E2EUSER spec v1.0).
+// Resets the persistent E2EUSER's userlogins doc to the NU baseline shape between UCs.
+// Does NOT delete the Firebase user (Pattern A invariant: mint-once, reset-MongoDB-only).
+//
+// Body:
+//   fixtureKey?: string (default "E2EUSER")
 //
 // Effect (in order):
-//   1. LOAD-BEARING marker check: verify target userlogin has isE2ETestUser=true
-//      Reject 403 if marker missing.
-//   2. Cascade-cleanup events / organizers / venues referencing this user.
-//   3. Delete userlogin record(s) for this firebaseUserId.
-//   4. Delete Firebase user via admin.auth().deleteUser(uid).
-//   5. Idempotent across both states (exists / doesn't exist).
+//   1. Resolve user identity from baseline/test-users.json[fixtureKey] (Fulton-bootstrapped via
+//      scripts/bootstrap-e2e-user.js). Reject if absent or firebaseUid unpopulated.
+//   2. Resolve NU role _id via roles._testFixtureKey: "ROLE_NU" lookup (manifest v1.1 seed).
+//   3. Layer-3 marker check on existing userlogins doc (if present).
+//      Cold-start exception: if doc absent, upsert creates new doc with markers.
+//   4. Upsert userlogins doc to baseline shape per E2EUSER spec v1.0:
+//      - roleIds: [<NU._id>], regionalOrganizerInfo null/false, regionalAdminInfo null/false,
+//        localUserInfo (E2E identity), active: true, isE2ETestUser: true,
+//        _testCorrelationId: "preset-baseline".
 //
-// Mirrors the cascade pattern from calendar-be-af scripts/cleanup-tobin-test-round2.js
-// (prior art from 2026-05-04/05 manual cleanup work).
+// NOT Pattern B (UC-0002 ephemeral cleanup) — that is delete-test-user-by-correlation.
+//
+// Idempotent: repeated calls converge to baseline shape; modifiedCount=0 if already at target.
 
 'use strict';
 
 const { app } = require('@azure/functions');
-const { ObjectId } = require('mongodb');
 const { getDb } = require('../lib/mongo');
-const { getFirebaseAdmin } = require('../lib/firebase');
+const {
+    loadTestUsers,
+    getE2EUserBaselineShape,
+    resolveRoleIdByFixtureKey,
+    TEST_APP_ID,
+} = require('../lib/baselineLoader');
 const { requireE2ETestUserMarker } = require('../middleware/markerCheck');
 
 async function resetTestUserHandler(request, context) {
-    context.log('reset-test-user: requested');
+    context.log('reset-test-user: Pattern A reset requested');
 
     try {
-        const body = await request.json();
-        const { firebaseUserId, email } = body;
+        const body = await request.json().catch(() => ({}));
+        const fixtureKey = body.fixtureKey || 'E2EUSER';
 
-        if (!firebaseUserId && !email) {
-            return badRequest('one of firebaseUserId or email required');
+        // 1. Resolve user identity from registry
+        const testUsers = loadTestUsers();
+        const userSpec = testUsers.users[fixtureKey];
+        if (!userSpec) {
+            return badRequest(
+                `fixtureKey "${fixtureKey}" not in baseline/test-users.json. ` +
+                `Run scripts/bootstrap-e2e-user.js to populate the registry.`
+            );
         }
-
-        const admin = getFirebaseAdmin();
-        let uid = firebaseUserId;
-
-        // Resolve UID from email if needed
-        if (!uid) {
-            try {
-                const fbUser = await admin.auth().getUserByEmail(email);
-                uid = fbUser.uid;
-            } catch (err) {
-                if (err.code === 'auth/user-not-found') {
-                    // Cold-start case — Firebase user already absent. Continue to Mongo cleanup.
-                    context.log(`reset-test-user: Firebase user ${email} not found; proceeding to Mongo cleanup`);
-                } else {
-                    throw err;
-                }
-            }
+        if (!userSpec.firebaseUid) {
+            return badRequest(
+                `fixtureKey "${fixtureKey}" present but firebaseUid is null/unpopulated. ` +
+                `Run scripts/bootstrap-e2e-user.js to mint and capture the UID, then redeploy.`
+            );
         }
 
         const db = await getDb();
         const userlogins = db.collection('userlogins');
 
-        // Layer 3 LOAD-BEARING check: target userlogin must carry isE2ETestUser=true marker.
-        // Cold-start exception: if no userlogin exists yet, skip marker check (no-op delete is idempotent).
-        const target = uid ? await userlogins.findOne({ firebaseUserId: uid }) : null;
+        // 2. Resolve NU role _id
+        const nuRoleId = await resolveRoleIdByFixtureKey(db, 'ROLE_NU');
+        if (!nuRoleId) {
+            return internalError(
+                'NU role not seeded on appId="99" partition. ' +
+                'Run preset-baseline first to seed manifest v1.1 roles[] (looks up _testFixtureKey: "ROLE_NU").'
+            );
+        }
+
+        // 3. Layer-3 marker check (only if existing doc — cold-start path bypasses)
+        const target = await userlogins.findOne({ firebaseUserId: userSpec.firebaseUid });
         if (target) {
             const guard = requireE2ETestUserMarker(target, context);
-            if (guard) return guard;  // 403 rejection
+            if (guard) return guard;
         }
 
-        // TODO (Phase B): full cascade cleanup per baseline manifest. For now, sweep
-        // organizers + events tagged with this firebaseUserId or organizer ObjectId.
-        const cleanup = { userlogins: 0, organizers: 0, events: 0, firebaseUser: 'skipped' };
+        // 4. Build baseline shape + upsert
+        const baselineShape = getE2EUserBaselineShape({
+            firebaseUid: userSpec.firebaseUid,
+            email: userSpec.email,
+            displayName: userSpec.displayName,
+            roleId: nuRoleId,
+        });
 
-        if (uid) {
-            // Find linked organizers
-            const orgs = await db.collection('organizers').find(
-                { firebaseUserId: uid, isE2ETestPlaceholder: true },
-                { projection: { _id: 1 } }
-            ).toArray();
-            const orgIds = orgs.map(o => o._id);
+        const result = await userlogins.updateOne(
+            { firebaseUserId: userSpec.firebaseUid, appId: TEST_APP_ID },
+            {
+                $set: { ...baselineShape, updatedAt: new Date() },
+                $setOnInsert: { createdAt: new Date() },
+            },
+            { upsert: true }
+        );
 
-            // Cascade events
-            if (orgIds.length > 0) {
-                const e = await db.collection('events').deleteMany({
-                    appId: 99,
-                    $or: [
-                        { ownerOrganizerID: { $in: orgIds } },
-                        { authorOrganizerID: { $in: orgIds } },
-                        { grantedOrganizerID: { $in: orgIds } },
-                        { alternateOrganizerID: { $in: orgIds } }
-                    ]
-                });
-                cleanup.events = e.deletedCount;
-            }
-
-            // Delete organizers (test-placeholder only)
-            const o = await db.collection('organizers').deleteMany({
-                firebaseUserId: uid,
-                isE2ETestPlaceholder: true
-            });
-            cleanup.organizers = o.deletedCount;
-
-            // Delete userlogin (marker-verified above)
-            const u = await userlogins.deleteOne({
-                firebaseUserId: uid,
-                isE2ETestUser: true
-            });
-            cleanup.userlogins = u.deletedCount;
-
-            // Delete Firebase user (idempotent — try/catch user-not-found)
-            try {
-                await admin.auth().deleteUser(uid);
-                cleanup.firebaseUser = 'deleted';
-            } catch (err) {
-                if (err.code === 'auth/user-not-found') {
-                    cleanup.firebaseUser = 'already_absent';
-                } else {
-                    throw err;
-                }
-            }
-        }
+        const action = result.upsertedCount > 0 ? 'created'
+            : result.modifiedCount > 0 ? 'reset'
+            : 'noOp';
 
         return {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ok: true,
-                uid: uid || null,
-                cleanup,
-                timestamp: new Date().toISOString()
-            })
+                fixtureKey,
+                firebaseUid: userSpec.firebaseUid,
+                roleIdResolved: nuRoleId,
+                action,
+                modified: result.modifiedCount,
+                upsertedId: result.upsertedId || null,
+                timestamp: new Date().toISOString(),
+            }),
         };
     } catch (err) {
         context.error('reset-test-user error:', err);
         return {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ error: 'internal_error', message: err.message })
+            body: JSON.stringify({ error: 'internal_error', message: err.message }),
         };
     }
 }
 
 function badRequest(message) {
-    return {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'bad_request', message })
-    };
+    return { status: 400, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'bad_request', message }) };
+}
+
+function internalError(message) {
+    return { status: 500, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'internal_error', message }) };
 }
 
 app.http('reset-test-user', {

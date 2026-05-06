@@ -1,8 +1,9 @@
 {
-  "_authoredBy": "Sarah (TT FE owner) 2026-05-06; committed by Fulton (test-mutators BE)",
-  "_purpose": "Baseline manifest for E2E test data on appId=99 TEST tier per ADR-0004 §Open follow-up #1. Read by preset-baseline endpoint at runtime; upserted idempotently by _testFixtureKey.",
-  "schemaVersion": "1.0",
-  "appId": 99,
+  "_authoredBy": "Sarah (TT FE owner) 2026-05-06; v1.1 schema bump 2026-05-06T19:40 Sarah+Fulton+Quinn",
+  "_purpose": "Baseline manifest for E2E test data on appId='99' TEST tier per ADR-0004 §Open follow-up #1. Read by preset-baseline endpoint at runtime; upserted idempotently by _testFixtureKey.",
+  "_v1_1_changelog": "schema 1.0 -> 1.1: (a) add roles[] seed collection (NU/SL/RO/RA/SA at appId='99' string) per Option X1 ratification 2026-05-06T19:37, (b) normalize appId from number 99 -> string '99' across all blocks to match real-app schema (mongosh confirms unanimous string-typed appId across userlogins/organizers/events/venues/categories), (c) Spotlighter free-fix: appId='99' SL doc explicitly stamps roleNameCode='SL' even though source appId='1' SL doc lacks the field (data-quality nit on production data; tracked separately).",
+  "schemaVersion": "1.1",
+  "appId": "99",
   "_testCorrelationId": "preset-baseline",
   "_resolveByName": {
     "events.categoryFirst": "categories.name",
@@ -13,6 +14,89 @@
     "events.startDateOffset": "events.startDate",
     "events.endDateOffset": "events.endDate"
   },
+  "roles": [
+    {
+      "matchKey": { "_testFixtureKey": "ROLE_NU" },
+      "fields": {
+        "_testFixtureKey": "ROLE_NU",
+        "appId": "99",
+        "roleName": "NamedUser",
+        "roleNameCode": "NU",
+        "description": "Can manage their system setting, favorites and locations.",
+        "permissions": [
+          "canReadEvents",
+          "canCRUDOwnEvents"
+        ],
+        "_testCorrelationId": "preset-baseline"
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "ROLE_SL" },
+      "fields": {
+        "_testFixtureKey": "ROLE_SL",
+        "appId": "99",
+        "roleName": "Spotlighter",
+        "roleNameCode": "SL",
+        "description": "Can view all events and add/edit spotlights (DJ, instructor, performer, band) only. Cannot edit core event data.",
+        "permissions": [
+          "canReadEvents",
+          "canManageSpotlights"
+        ],
+        "_testCorrelationId": "preset-baseline"
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "ROLE_RO" },
+      "fields": {
+        "_testFixtureKey": "ROLE_RO",
+        "appId": "99",
+        "roleName": "RegionalOrganizer",
+        "roleNameCode": "RO",
+        "description": "Can manage their own events and all events within their assigned region.",
+        "permissions": [
+          "canReadEvents",
+          "canCRUDOwnEvents",
+          "canCRUDAllEventsInRegion"
+        ],
+        "_testCorrelationId": "preset-baseline"
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "ROLE_RA" },
+      "fields": {
+        "_testFixtureKey": "ROLE_RA",
+        "appId": "99",
+        "roleName": "RegionalAdmin",
+        "roleNameCode": "RA",
+        "description": "Can manage all events and organizers within their assigned region.",
+        "permissions": [
+          "canReadEvents",
+          "canCRUDOwnEvents",
+          "canCRUDAllEventsInRegion",
+          "canManageOrganizers"
+        ],
+        "_testCorrelationId": "preset-baseline"
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "ROLE_SA" },
+      "fields": {
+        "_testFixtureKey": "ROLE_SA",
+        "appId": "99",
+        "roleName": "SystemAdmin",
+        "roleNameCode": "SA",
+        "description": "Can manage all events, organizers, and regions but does not have access to system settings.",
+        "permissions": [
+          "canReadEvents",
+          "canCRUDOwnEvents",
+          "canCRUDAllEventsInRegion",
+          "canManageOrganizers",
+          "canManageRegions"
+        ],
+        "_testCorrelationId": "preset-baseline"
+      }
+    }
+  ],
   "organizers": [
     {
       "matchKey": { "_testFixtureKey": "E2E-ORG-01" },
@@ -21,7 +105,7 @@
         "name": "E2E Placeholder Organizer",
         "shortName": "E2EORG",
         "fullName": "E2E Placeholder Organizer",
-        "description": "Synthetic test organizer for E2E baseline (appId=99). Do not display on real surfaces.",
+        "description": "Synthetic test organizer for E2E baseline (appId='99'). Do not display on real surfaces.",
         "isActive": true,
         "isEnabled": true,
         "isApproved": true,
@@ -37,7 +121,7 @@
           "isTaxiDancer": false,
           "isVendor": false
         },
-        "appId": 99,
+        "appId": "99",
         "_testCorrelationId": "preset-baseline"
       }
     }
@@ -55,7 +139,7 @@
         "_ownerOrganizerShortName": "E2EORG",
         "venueName": "E2E Test Venue (Boston)",
         "isActive": true,
-        "appId": 99,
+        "appId": "99",
         "_testCorrelationId": "preset-baseline",
         "isE2ETestEvent": true
       }
@@ -74,7 +158,7 @@
         "forBeginners": true,
         "beginnerFriendly": true,
         "isActive": true,
-        "appId": 99,
+        "appId": "99",
         "_testCorrelationId": "preset-baseline",
         "isE2ETestEvent": true
       }
@@ -91,7 +175,7 @@
         "_ownerOrganizerShortName": "E2EORG",
         "venueName": "E2E Test Venue (Boston)",
         "isActive": true,
-        "appId": 99,
+        "appId": "99",
         "_testCorrelationId": "preset-baseline",
         "isE2ETestEvent": true
       }
@@ -108,7 +192,7 @@
         "_ownerOrganizerShortName": "E2EORG",
         "venueName": "E2E Test Venue (NYC)",
         "isActive": true,
-        "appId": 99,
+        "appId": "99",
         "_testCorrelationId": "preset-baseline",
         "isE2ETestEvent": true
       }
@@ -125,7 +209,7 @@
         "_ownerOrganizerShortName": "E2EORG",
         "venueName": "E2E Test Venue (Boston)",
         "isActive": true,
-        "appId": 99,
+        "appId": "99",
         "_testCorrelationId": "preset-baseline",
         "isE2ETestEvent": true
       }
@@ -142,7 +226,7 @@
         "_ownerOrganizerShortName": "E2EORG",
         "venueName": "E2E Test Venue (Boston)",
         "isActive": true,
-        "appId": 99,
+        "appId": "99",
         "_testCorrelationId": "preset-baseline",
         "isE2ETestEvent": true
       }

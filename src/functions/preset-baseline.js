@@ -28,13 +28,29 @@ async function presetBaselineHandler(request, context) {
 
         const summary = {
             schemaVersion: manifest.schemaVersion,
+            roles: { inserted: 0, updated: 0, noOp: 0 },
             organizers: { inserted: 0, updated: 0, noOp: 0 },
             events: { inserted: 0, updated: 0, noOp: 0 },
             calendars: { inserted: 0, updated: 0, noOp: 0 },
             unresolvedReferences: [],
         };
 
-        // ---- Organizers first ----
+        // ---- Roles first (foundational lookup table per Option X1, manifest v1.1) ----
+        // appId="99" partition needs its own role docs; userlogins (future) resolve roleIds[*]
+        // by _testFixtureKey "ROLE_<CODE>" lookup. Schema-parity with appId="1" docs.
+        for (const r of (manifest.roles || [])) {
+            const fields = {
+                ...r.fields,
+                appId: '99',
+                _testCorrelationId: 'preset-baseline',
+            };
+            const result = await upsertByMatchKey(db, 'roles', r.matchKey, fields);
+            summary.roles[result.action === 'inserted' ? 'inserted'
+                : result.action === 'updated' ? 'updated'
+                : 'noOp']++;
+        }
+
+        // ---- Organizers next ----
         // Process before events so events can resolve _ownerOrganizerShortName.
         for (const o of (manifest.organizers || [])) {
             const fields = transformOrganizerFields(o.fields);
@@ -69,7 +85,7 @@ async function presetBaselineHandler(request, context) {
         for (const c of (manifest.calendars || [])) {
             const result = await upsertByMatchKey(db, 'calendars', c.matchKey, {
                 ...c.fields,
-                appId: 99,
+                appId: '99',
                 _testCorrelationId: 'preset-baseline',
             });
             summary.calendars[result.action === 'inserted' ? 'inserted'

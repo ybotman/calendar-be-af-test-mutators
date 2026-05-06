@@ -2,7 +2,7 @@
 // correlationId-scoped orphan cleanup per ADR-0004 §Pre-spawn reset.
 //
 // Body: { activeCorrelationIds: [<currently-running spawns>], excludeCorrelationIds: ["preset-baseline"] }
-// Effect: DELETE WHERE { appId: 99, _testCorrelationId: { $nin: activeCorrelationIds + ["preset-baseline"] } }
+// Effect: DELETE WHERE { appId: "99", _testCorrelationId: { $nin: activeCorrelationIds + ["preset-baseline"] } }
 //
 // Cascade collections mirror the preset-baseline write surface (organizers, events, calendars)
 // plus userlogins (anticipated by reset-test-user / UC-0002). Belt+suspenders sweep — any
@@ -28,13 +28,13 @@ async function resetOrphansHandler(request, context) {
         const preserveSet = new Set([...activeCorrelationIds, ...excludeCorrelationIds, 'preset-baseline']);
 
         const orphanFilter = {
-            appId: 99,
+            appId: '99',
             _testCorrelationId: { $nin: Array.from(preserveSet) }
         };
 
         const db = await getDb();
 
-        const collections = ['userlogins', 'organizers', 'events', 'calendars'];
+        const collections = ['userlogins', 'organizers', 'events', 'calendars', 'roles'];
         const deleted = {};
         for (const cName of collections) {
             const result = await db.collection(cName).deleteMany(orphanFilter);

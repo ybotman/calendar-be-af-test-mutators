@@ -1,8 +1,11 @@
 // Baseline manifest loader — reads baseline/manifest.json + applies the contract
 // Sarah locked 2026-05-06: relative date tokens, resolve-by-name, _testFixtureKey upserts.
+// v1.1 (2026-05-06): appId normalized to STRING "99" to match real-app schema (mongosh-confirmed
+// unanimous string-typed appId across userlogins/organizers/events/venues/categories);
+// roles[] seed collection added for partition-scoped role lookups.
 //
 // Force-tag invariants (caller cannot override; safety surface):
-//   appId: 99
+//   appId: "99"  (STRING — schema parity with real-app)
 //   _testCorrelationId: "preset-baseline"
 
 'use strict';
@@ -12,7 +15,7 @@ const path = require('path');
 
 const MANIFEST_PATH = path.join(__dirname, '..', '..', 'baseline', 'manifest.json');
 const RESERVED_CORRELATION_ID = 'preset-baseline';
-const TEST_APP_ID = 99;
+const TEST_APP_ID = '99';
 
 let cachedManifest = null;
 

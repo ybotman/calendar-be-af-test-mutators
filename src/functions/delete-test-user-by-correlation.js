@@ -150,6 +150,21 @@ async function deleteTestUserByCorrelationHandler(request, context) {
                 'For orphan recovery (mark-test-user failed mid-flow), pass firebaseUserId override to use the relaxed-marker fallback path.'
             );
         }
+
+        // Defense-in-depth REJECT: Pattern A persistent fixtures (E2EUSER) MUST NEVER be deleted by
+        // this primitive. Pattern A's cleanup is reset-test-user (state revert); delete-by-correlation
+        // is for Pattern B per-spawn cleanup only. Symmetric to the organizer preserve check
+        // (preset-baseline fixtures preserved). Smoke-discovered 2026-05-06T23:49 — Pattern A user got
+        // nuked because elevate-test-user-role stamps caller correlation, making the persistent user
+        // appear deletable via correlationId match.
+        if (target._testFixtureKey === 'E2EUSER') {
+            return forbidden(
+                'rejected_pattern_a_fixture',
+                'target carries _testFixtureKey="E2EUSER" (Pattern A persistent fixture). ' +
+                'Pattern A users are managed via reset-test-user (state revert), NOT delete-by-correlation. ' +
+                'If you need to revert E2EUSER role state, call POST /api/test/reset-test-user.'
+            );
+        }
         // For firebaseUserId_fallback path: marker check intentionally relaxed because the doc
         // may legitimately lack the marker (mark-test-user didn't complete). Defense composes
         // from appId="99" + firebaseUserId match — both are strong discriminators.

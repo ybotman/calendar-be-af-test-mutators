@@ -7,12 +7,12 @@
     "E2EUSER": {
       "_testFixtureKey": "E2EUSER",
       "email": "tango.tiempo.test@gmail.com",
-      "firebaseUid": "wdJpdWPoi4aJ3yy8BUSfTqWDHd52",
+      "firebaseUid": "u0FHggBZJQcl4u3AOd4nQ6dcLsg2",
       "displayName": "E2E Test User",
       "appId": "99",
       "_testCorrelationId": "preset-baseline",
       "_status": "ACTIVE",
-      "_bootstrappedAt": "2026-05-06T23:47:49.983Z",
+      "_bootstrappedAt": "2026-05-06T23:51:06.719Z",
       "_bootstrapAction": "minted"
     }
   }

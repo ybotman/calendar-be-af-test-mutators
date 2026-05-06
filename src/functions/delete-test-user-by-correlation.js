@@ -156,19 +156,57 @@ async function deleteTestUserByCorrelationHandler(request, context) {
 
         const targetUid = target.firebaseUserId;
 
-        // Delete Mongo userlogins doc first
+        // Capture organizerId via reference BEFORE userLogins delete (Quinn Path A 2026-05-06T23:42).
+        // Reference-based cascade naturally handles BOTH organizer-creation paths:
+        //   - Pattern B mutator-path: elevate-test-user-role auto-upserted with E2EORG-${correlationId}
+        //   - Pattern B real-flow path (UC-0003): TT FE POST /api/organizers — no fixture-key marker
+        // Reference (regionalOrganizerInfo.organizerId) is a strong discriminator for both.
+        const organizerIdRef = target.regionalOrganizerInfo?.organizerId || null;
+
+        // Delete Mongo userlogins doc
         const mongoResult = await userlogins.deleteOne({ _id: target._id });
 
-        // Cascade-delete organizer with _testFixtureKey: "E2EORG-${correlationId}" at same appId
-        // (per Quinn arbitration 2026-05-06T22:34; UC-0003 cleanup contract).
-        // reset-orphans does NOT sweep appId="1" partition (catastrophic risk against production
-        // data); cascade-delete here is the cleanup path for Pattern B per-spawn organizers.
-        const organizerFixtureKey = `E2EORG-${correlationId}`;
-        const organizerResult = await db.collection('organizers').deleteMany({
-            _testFixtureKey: organizerFixtureKey,
-            appId,
-        });
-        const organizerDeleted = organizerResult.deletedCount;
+        // Reference-based organizer cascade with share-check defense
+        let organizerCascade = { attempted: false, deleted: 0, organizerId: null, action: 'no_organizer_reference' };
+        if (organizerIdRef) {
+            organizerCascade.attempted = true;
+            organizerCascade.organizerId = organizerIdRef;
+
+            // Look up organizer with appId compound (defense)
+            const orgDoc = await db.collection('organizers').findOne({ _id: organizerIdRef, appId });
+            if (!orgDoc) {
+                organizerCascade.action = 'organizer_not_found_or_wrong_appid';
+            } else {
+                // Share-check: count OTHER userlogins docs at the same appId still referencing this organizer
+                // (we already deleted ours, so any remaining count means shared with another user)
+                const sharedCount = await userlogins.countDocuments({
+                    'regionalOrganizerInfo.organizerId': organizerIdRef,
+                    appId,
+                });
+                if (sharedCount > 0) {
+                    organizerCascade.action = 'shared_with_other_users_skipped';
+                    organizerCascade.sharedCount = sharedCount;
+                    context.log(`organizer ${organizerIdRef} still referenced by ${sharedCount} userlogins at appId="${appId}"; skip cascade`);
+                } else {
+                    const orgDelResult = await db.collection('organizers').deleteOne({ _id: organizerIdRef, appId });
+                    organizerCascade.deleted = orgDelResult.deletedCount;
+                    organizerCascade.action = 'deleted_via_reference';
+                }
+            }
+        } else {
+            // No regionalOrganizerInfo.organizerId — UC-0002 path (no apply-as-organizer step) OR
+            // user never elevated. Belt+suspenders: also try fixture-key cascade in case Pattern B
+            // mutator-path created an orphan organizer that's not referenced by user (rare).
+            const fixtureKeyResult = await db.collection('organizers').deleteMany({
+                _testFixtureKey: `E2EORG-${correlationId}`,
+                appId,
+            });
+            if (fixtureKeyResult.deletedCount > 0) {
+                organizerCascade.attempted = true;
+                organizerCascade.deleted = fixtureKeyResult.deletedCount;
+                organizerCascade.action = 'deleted_via_fixture_key_fallback';
+            }
+        }
 
         // Delete Firebase user (idempotent on user-not-found)
         let firebaseDeleted = false;
@@ -189,12 +227,16 @@ async function deleteTestUserByCorrelationHandler(request, context) {
         }
 
         const action = (() => {
+            const orgDeleted = organizerCascade.deleted > 0;
+            const orgSkipped = organizerCascade.attempted && organizerCascade.deleted === 0;
             if (lookupPath === 'firebaseUserId_fallback') {
-                return organizerDeleted > 0
-                    ? 'deleted_via_firebase_uid_fallback_with_organizer_cascade'
-                    : 'deleted_via_firebase_uid_fallback';
+                if (orgDeleted) return 'deleted_via_firebase_uid_fallback_with_organizer_cascade';
+                if (orgSkipped) return 'deleted_via_firebase_uid_fallback_organizer_skipped';
+                return 'deleted_via_firebase_uid_fallback';
             }
-            return organizerDeleted > 0 ? 'deleted_with_organizer_cascade' : 'deleted';
+            if (orgDeleted) return 'deleted_with_organizer_cascade';
+            if (orgSkipped) return 'deleted_organizer_orphan_skipped';
+            return 'deleted';
         })();
 
         return {
@@ -205,7 +247,7 @@ async function deleteTestUserByCorrelationHandler(request, context) {
                 correlationId,
                 appId,
                 mongo: { deleted: mongoResult.deletedCount, firebaseUserId: targetUid },
-                organizer: { deleted: organizerDeleted, fixtureKey: organizerFixtureKey },
+                organizer: organizerCascade,
                 firebase: { deleted: firebaseDeleted, action: firebaseAction },
                 action,
                 lookupPath,

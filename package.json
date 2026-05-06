@@ -1,0 +1,22 @@
+{
+  "name": "calendar-be-af-test-mutators",
+  "version": "0.1.0",
+  "description": "TEST-tier mutator endpoints for E2E framework. NEVER deployed to PROD. Per ADR-0017.",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "func start",
+    "dev": "func start --verbose",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "firebase-admin": "^12.0.0",
+    "mongodb": "^6.3.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

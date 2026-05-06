@@ -4,12 +4,12 @@
 // Body: { activeCorrelationIds: [<currently-running spawns>], excludeCorrelationIds: ["preset-baseline"] }
 // Effect: DELETE WHERE { appId: 99, _testCorrelationId: { $nin: activeCorrelationIds + ["preset-baseline"] } }
 //
+// Cascade collections mirror the preset-baseline write surface (organizers, events, calendars)
+// plus userlogins (anticipated by reset-test-user / UC-0002). Belt+suspenders sweep — any
+// appId=99 record without a preserved correlationId is by definition orphan junk.
+//
 // Quinn coordinates the active-spawn-list (knows in-flight Gauge spawns).
 // preset-baseline is preserved (reserved correlationId for shared baseline data).
-//
-// STUB STATUS: API surface registered; full delete-cascade TBD pending baseline manifest +
-// per-collection list confirmation. Currently performs the userlogins-only delete as
-// proof-of-shape; cascade collections will be added per ADR-0004 §Document tagging contract.
 
 'use strict';
 
@@ -34,10 +34,7 @@ async function resetOrphansHandler(request, context) {
 
         const db = await getDb();
 
-        // TODO (Phase B): expand cascade per ADR-0004 §Document tagging contract.
-        // For now, sweep userlogins + organizers + events; future collections added
-        // as schema integration lands.
-        const collections = ['userlogins', 'organizers', 'events'];
+        const collections = ['userlogins', 'organizers', 'events', 'calendars'];
         const deleted = {};
         for (const cName of collections) {
             const result = await db.collection(cName).deleteMany(orphanFilter);
@@ -59,7 +56,7 @@ async function resetOrphansHandler(request, context) {
             })
         };
     } catch (err) {
-        context.log.error('reset-orphans error:', err);
+        context.error('reset-orphans error:', err);
         return {
             status: 500,
             headers: { 'Content-Type': 'application/json' },

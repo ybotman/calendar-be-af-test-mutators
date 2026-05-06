@@ -70,7 +70,7 @@ async function seedWithCorrelationHandler(request, context) {
             })
         };
     } catch (err) {
-        context.log.error('seed-with-correlation error:', err);
+        context.error('seed-with-correlation error:', err);
         return {
             status: 500,
             headers: { 'Content-Type': 'application/json' },

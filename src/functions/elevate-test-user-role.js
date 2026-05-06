@@ -94,7 +94,7 @@ async function elevateTestUserRoleHandler(request, context) {
             })
         };
     } catch (err) {
-        context.log.error('elevate-test-user-role error:', err);
+        context.error('elevate-test-user-role error:', err);
         return {
             status: 500,
             headers: { 'Content-Type': 'application/json' },

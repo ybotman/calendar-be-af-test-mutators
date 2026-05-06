@@ -124,7 +124,7 @@ async function resetTestUserHandler(request, context) {
             })
         };
     } catch (err) {
-        context.log.error('reset-test-user error:', err);
+        context.error('reset-test-user error:', err);
         return {
             status: 500,
             headers: { 'Content-Type': 'application/json' },

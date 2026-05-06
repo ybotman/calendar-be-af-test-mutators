@@ -1,0 +1,152 @@
+{
+  "_authoredBy": "Sarah (TT FE owner) 2026-05-06; committed by Fulton (test-mutators BE)",
+  "_purpose": "Baseline manifest for E2E test data on appId=99 TEST tier per ADR-0004 §Open follow-up #1. Read by preset-baseline endpoint at runtime; upserted idempotently by _testFixtureKey.",
+  "schemaVersion": "1.0",
+  "appId": 99,
+  "_testCorrelationId": "preset-baseline",
+  "_resolveByName": {
+    "events.categoryFirst": "categories.name",
+    "events.masteredCityName": "masteredcities.cityName",
+    "events._ownerOrganizerShortName": "organizers.shortName"
+  },
+  "_dateTokens": {
+    "events.startDateOffset": "events.startDate",
+    "events.endDateOffset": "events.endDate"
+  },
+  "organizers": [
+    {
+      "matchKey": { "_testFixtureKey": "E2E-ORG-01" },
+      "fields": {
+        "_testFixtureKey": "E2E-ORG-01",
+        "name": "E2E Placeholder Organizer",
+        "shortName": "E2EORG",
+        "fullName": "E2E Placeholder Organizer",
+        "description": "Synthetic test organizer for E2E baseline (appId=99). Do not display on real surfaces.",
+        "isActive": true,
+        "isEnabled": true,
+        "isApproved": true,
+        "wantRender": true,
+        "isE2ETestPlaceholder": true,
+        "organizerTypes": {
+          "isEventOrganizer": true,
+          "isVenue": false,
+          "isTeacher": false,
+          "isMaestro": false,
+          "isDJ": false,
+          "isOrchestra": false,
+          "isTaxiDancer": false,
+          "isVendor": false
+        },
+        "appId": 99,
+        "_testCorrelationId": "preset-baseline"
+      }
+    }
+  ],
+  "events": [
+    {
+      "matchKey": { "_testFixtureKey": "E2E-EVT-CURMONTH-01" },
+      "fields": {
+        "_testFixtureKey": "E2E-EVT-CURMONTH-01",
+        "title": "E2E Test Milonga — Current Month Anchor",
+        "startDateOffset": "+5d",
+        "endDateOffset": "+5d",
+        "categoryFirst": "Milonga",
+        "masteredCityName": "Boston",
+        "_ownerOrganizerShortName": "E2EORG",
+        "venueName": "E2E Test Venue (Boston)",
+        "isActive": true,
+        "appId": 99,
+        "_testCorrelationId": "preset-baseline",
+        "isE2ETestEvent": true
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "E2E-EVT-CURMONTH-02" },
+      "fields": {
+        "_testFixtureKey": "E2E-EVT-CURMONTH-02",
+        "title": "E2E Test Practica — Beginner-Friendly",
+        "startDateOffset": "+12d",
+        "endDateOffset": "+12d",
+        "categoryFirst": "Practica",
+        "masteredCityName": "Boston",
+        "_ownerOrganizerShortName": "E2EORG",
+        "venueName": "E2E Test Venue (Boston)",
+        "forBeginners": true,
+        "beginnerFriendly": true,
+        "isActive": true,
+        "appId": 99,
+        "_testCorrelationId": "preset-baseline",
+        "isE2ETestEvent": true
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "E2E-EVT-CURMONTH-03" },
+      "fields": {
+        "_testFixtureKey": "E2E-EVT-CURMONTH-03",
+        "title": "E2E Test Class — Local",
+        "startDateOffset": "+18d",
+        "endDateOffset": "+18d",
+        "categoryFirst": "Class",
+        "masteredCityName": "Boston",
+        "_ownerOrganizerShortName": "E2EORG",
+        "venueName": "E2E Test Venue (Boston)",
+        "isActive": true,
+        "appId": 99,
+        "_testCorrelationId": "preset-baseline",
+        "isE2ETestEvent": true
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "E2E-EVT-EXPLORE-01" },
+      "fields": {
+        "_testFixtureKey": "E2E-EVT-EXPLORE-01",
+        "title": "E2E Test Milonga — Explore Mode (NYC)",
+        "startDateOffset": "+22d",
+        "endDateOffset": "+22d",
+        "categoryFirst": "Milonga",
+        "masteredCityName": "New York City",
+        "_ownerOrganizerShortName": "E2EORG",
+        "venueName": "E2E Test Venue (NYC)",
+        "isActive": true,
+        "appId": 99,
+        "_testCorrelationId": "preset-baseline",
+        "isE2ETestEvent": true
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "E2E-EVT-NEXTMONTH-01" },
+      "fields": {
+        "_testFixtureKey": "E2E-EVT-NEXTMONTH-01",
+        "title": "E2E Test Milonga — Next Month Anchor",
+        "startDateOffset": "+35d",
+        "endDateOffset": "+35d",
+        "categoryFirst": "Milonga",
+        "masteredCityName": "Boston",
+        "_ownerOrganizerShortName": "E2EORG",
+        "venueName": "E2E Test Venue (Boston)",
+        "isActive": true,
+        "appId": 99,
+        "_testCorrelationId": "preset-baseline",
+        "isE2ETestEvent": true
+      }
+    },
+    {
+      "matchKey": { "_testFixtureKey": "E2E-EVT-NEXTMONTH-02" },
+      "fields": {
+        "_testFixtureKey": "E2E-EVT-NEXTMONTH-02",
+        "title": "E2E Test Practica — Next Month",
+        "startDateOffset": "+45d",
+        "endDateOffset": "+45d",
+        "categoryFirst": "Practica",
+        "masteredCityName": "Boston",
+        "_ownerOrganizerShortName": "E2EORG",
+        "venueName": "E2E Test Venue (Boston)",
+        "isActive": true,
+        "appId": 99,
+        "_testCorrelationId": "preset-baseline",
+        "isE2ETestEvent": true
+      }
+    }
+  ],
+  "calendars": []
+}

@@ -1,53 +1,95 @@
 // POST /api/test/preset-baseline
 // Idempotent baseline staging per ADR-0004 §Preset.
-// All baseline documents tagged `_testCorrelationId: "preset-baseline"` (reserved).
-// Test users carry isE2ETestUser=true; placeholder organizers carry isE2ETestPlaceholder=true.
+// Reads baseline/manifest.json, processes organizers first (so events can resolve
+// _ownerOrganizerShortName → ownerOrganizerID), then events (with name-resolutions
+// + date-token expansion). All upserted by `_testFixtureKey` per Sarah's lock.
 //
-// STUB STATUS: API surface registered; body content TBD pending baseline manifest spec
-// (open follow-up #1 from ADR-0004; coordinates with Sarah/Cord/Dash for app-specific shape).
+// Force-tag invariants (caller cannot override):
+//   appId: 99
+//   _testCorrelationId: "preset-baseline"
 
 'use strict';
 
 const { app } = require('@azure/functions');
 const { getDb } = require('../lib/mongo');
-
-const RESERVED_CORRELATION_ID = 'preset-baseline';
+const {
+    loadManifest,
+    transformEventFields,
+    transformOrganizerFields,
+    upsertByMatchKey,
+} = require('../lib/baselineLoader');
 
 async function presetBaselineHandler(request, context) {
     context.log('preset-baseline: idempotent baseline staging requested');
 
     try {
+        const manifest = loadManifest();
         const db = await getDb();
-        const userlogins = db.collection('userlogins');
 
-        // Idempotency: count existing baseline docs first
-        const existingBaseline = await userlogins.countDocuments({
-            appId: 99,
-            _testCorrelationId: RESERVED_CORRELATION_ID,
-            isE2ETestUser: true
-        });
+        const summary = {
+            schemaVersion: manifest.schemaVersion,
+            organizers: { inserted: 0, updated: 0, noOp: 0 },
+            events: { inserted: 0, updated: 0, noOp: 0 },
+            calendars: { inserted: 0, updated: 0, noOp: 0 },
+            unresolvedReferences: [],
+        };
 
-        // TODO (Phase B): implement baseline corpus per manifest spec.
-        // - Test users (per Fulton baseline manifest, coordinates with Sarah/Cord/Dash)
-        // - Test events (RRULE + non-recurring, with various category bindings)
-        // - Test calendars
-        // - Placeholder organizer with isE2ETestPlaceholder=true
-        // All upserted (idempotent), all tagged _testCorrelationId="preset-baseline" + isE2ETestUser=true
+        // ---- Organizers first ----
+        // Process before events so events can resolve _ownerOrganizerShortName.
+        for (const o of (manifest.organizers || [])) {
+            const fields = transformOrganizerFields(o.fields);
+            const result = await upsertByMatchKey(db, 'organizers', o.matchKey, fields);
+            summary.organizers[result.action === 'inserted' ? 'inserted'
+                : result.action === 'updated' ? 'updated'
+                : 'noOp']++;
+        }
+
+        // ---- Events ----
+        for (const e of (manifest.events || [])) {
+            const fields = await transformEventFields(db, e.fields);
+
+            // Track any unresolved references (name → ID) for visibility
+            if (e.fields.categoryFirst && !fields.categoryFirstId) {
+                summary.unresolvedReferences.push(`event "${e.fields.title || e.matchKey._testFixtureKey}": categoryFirst="${e.fields.categoryFirst}" not in categories collection`);
+            }
+            if (e.fields.masteredCityName && !fields.masteredCityId) {
+                summary.unresolvedReferences.push(`event "${e.fields.title || e.matchKey._testFixtureKey}": masteredCityName="${e.fields.masteredCityName}" not in masteredcities collection`);
+            }
+            if (e.fields._ownerOrganizerShortName && !fields.ownerOrganizerID) {
+                summary.unresolvedReferences.push(`event "${e.fields.title || e.matchKey._testFixtureKey}": _ownerOrganizerShortName="${e.fields._ownerOrganizerShortName}" not in organizers collection`);
+            }
+
+            const result = await upsertByMatchKey(db, 'events', e.matchKey, fields);
+            summary.events[result.action === 'inserted' ? 'inserted'
+                : result.action === 'updated' ? 'updated'
+                : 'noOp']++;
+        }
+
+        // ---- Calendars (passthrough — no resolutions per current manifest) ----
+        for (const c of (manifest.calendars || [])) {
+            const result = await upsertByMatchKey(db, 'calendars', c.matchKey, {
+                ...c.fields,
+                appId: 99,
+                _testCorrelationId: 'preset-baseline',
+            });
+            summary.calendars[result.action === 'inserted' ? 'inserted'
+                : result.action === 'updated' ? 'updated'
+                : 'noOp']++;
+        }
+
+        context.log(`preset-baseline complete: ${JSON.stringify(summary)}`);
 
         return {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 ok: true,
-                stub: true,
-                message: 'preset-baseline endpoint registered; baseline corpus content TBD per manifest spec (ADR-0004 open follow-up #1)',
-                existingBaseline,
-                reservedCorrelationId: RESERVED_CORRELATION_ID,
+                summary,
                 timestamp: new Date().toISOString()
             })
         };
     } catch (err) {
-        context.log.error('preset-baseline error:', err);
+        context.error('preset-baseline error:', err);
         return {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -58,7 +100,7 @@ async function presetBaselineHandler(request, context) {
 
 app.http('preset-baseline', {
     methods: ['POST'],
-    authLevel: 'function',  // Layer 2: function key required
+    authLevel: 'function',
     route: 'test/preset-baseline',
     handler: presetBaselineHandler,
 });

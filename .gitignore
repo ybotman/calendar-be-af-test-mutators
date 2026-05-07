@@ -4,4 +4,5 @@ local.settings.json
 .DS_Store
 .env
 .env.local
+.env.test.local
 .vscode/

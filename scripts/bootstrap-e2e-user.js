@@ -62,11 +62,22 @@ async function main() {
     const auth = admin.auth();
     let user;
     let action;
-    let mintedPassword = null;  // captured if/when we mint or caller-provides via env; persisted for Pattern A browser-login UCs
+    let mintedPassword = null;  // captured if/when we mint or re-bind; persisted for Pattern A browser-login UCs
     try {
         user = await auth.getUserByEmail(E2EUSER_EMAIL);
         action = 'existing';
         console.log(`[bootstrap] Existing Firebase user found: uid=${user.uid} emailVerified=${user.emailVerified}`);
+
+        // UC-0020 path-(a): on existing user with TEST_USER_PWD env present, re-bind
+        // the Firebase password to the chosen value AND persist. Admin SDK can't recover
+        // the existing password, so re-bind is the only way to put a known credential
+        // into .env.test.local for browser-login UCs.
+        if (process.env.TEST_USER_PWD) {
+            await auth.updateUser(user.uid, { password: process.env.TEST_USER_PWD });
+            mintedPassword = process.env.TEST_USER_PWD;
+            action = 'rebound';
+            console.log(`[bootstrap] Re-bound existing user password from TEST_USER_PWD env (uid=${user.uid})`);
+        }
     } catch (err) {
         if (err.code !== 'auth/user-not-found') throw err;
         // Firebase password complexity: requires upper case + non-alphanumeric.
